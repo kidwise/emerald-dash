@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Van, groundHeight } from './van.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
+import { PIKE } from '../world/market.js';
 import { AVENUES, STREETS, DENNY, CURB, Z_NORTH, LAKE_Z, heightAt, avenueAt, streetAt, avenueName, CAMPUS, MARKET, routeBetween, district, DISTRICT_LABEL } from '../config.js';
 
 const SHIFT_TIME = 100, MAX_JOBS = 4, THROW_T = 0.8, GRAV = 18, RANGE = 36;
@@ -40,9 +41,18 @@ const POIS = [
 ];
 
 // Places that hand you cargo for a cross-town run.
-const SOURCES = [
-  { name: 'Whole Foods Market', x: -40, z: DENNY.z + 5.3, cargo: 'GROCERIES' },
-  { name: 'Pike Place Fish', x: -436, z: 690, cargo: 'FRESH FISH' },
+// Places that hand you cargo for a cross-town run (the market's shops are added when the world is built).
+// rule: fragile = cornering force that starts to damage it, gentle = hand over below 20 mph,
+//       heavy = slows the van, chilled = on a clock, toss = you have to catch it first.
+const BASE_SOURCES = [
+  { name: 'Whole Foods Market', x: -40, z: DENNY.z + 5.3, cargo: 'GROCERIES', rule: { fragile: 8.5, gentle: true } },
+];
+// A close look at a landmark: stop the van here and the camera takes over.
+const BASE_STOPS = [
+  { name: 'Public Market Center', sub: 'The sign and clock, lit since the 1930s', x: -420, z: 701.6, look: [-450, -15.5, 704], dist: 34, lift: -6 },
+  { name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: -606, z: 124, look: [-640, 84, 92], dist: 150, lift: -78 },
+  { name: 'Glass Garden', sub: 'Blown glass, lit from within', x: -572, z: 190, look: [-590, 3.5, 190], dist: 26, lift: 0.5 },
+  { name: 'Westlake Park', sub: 'The holiday tree at the heart of the retail core', x: -132, z: 620, look: [-132, 0, 643], dist: 30, lift: 3, relY: true },
 ];
 const CAMPUS_STOPS = [
   { x: -640, z: 124, name: 'Space Needle Base' }, { x: -590, z: 214, name: 'Glass Garden Entrance' },
@@ -265,6 +275,10 @@ export function initGame(app) {
   try { best = Number(localStorage.getItem('emerald-dash-best') || 0); } catch { /* storage unavailable */ }
 
   // ---------------------------------------------------------------- dispatch: one continuous city, jobs appear near the van
+  const SOURCES = [...BASE_SOURCES, ...world.pike.sources];
+  const STOPS = [...BASE_STOPS, ...world.pike.stops];
+  const PLACES = POIS.length + STOPS.length;
+  const inSlow = (x, z) => x > PIKE.slow.x0 && x < PIKE.slow.x1 && z > PIKE.slow.z0 && z < PIKE.slow.z1;
   const campusLots = CAMPUS_STOPS.map(c => ({ name: c.name, door: { x: c.x, z: c.z }, district: 'center', x0: c.x, x1: c.x, z0: c.z, z1: c.z }));
   const allLots = () => [...world.buildings.lots.filter(l => l.name && l.door && l.type !== 'grocery' && l.district !== 'none'), ...campusLots];
   const busy = (l) => targets.some(t => !t.done && (t.name === l.name || t.dest === l));
@@ -292,7 +306,7 @@ export function initGame(app) {
     else if (kind === 'pickup') {
       const src = SOURCES.reduce((b, c) => Math.hypot(c.x - vx, c.z - vz) < Math.hypot(b.x - vx, b.z - vz) ? c : b);
       const dest = pickLot(src.x, src.z, 200, 640); if (!dest) return null;
-      t = makeTarget('pickup', src.x, src.z, heightAt(src.x, src.z), src.name); t.dest = dest; t.cargo = src.cargo;
+      t = makeTarget('pickup', src.x, src.z, heightAt(src.x, src.z), src.name); t.dest = dest; t.cargo = src.cargo; t.rule = src.rule || {};
       t.far = Math.hypot(dest.door.x - src.x, dest.door.z - src.z);
       hud.toast('Cross-town run', `Collect ${src.cargo.toLowerCase()} at ${src.name}`, 'place');
     } else {
@@ -309,7 +323,7 @@ export function initGame(app) {
     clearTargets();
     if (S.mode !== 'end' || !S.keepPos) van.reset(START[0], START[1], START[2]);
     Object.assign(S, { mode: 'play', explore: !!explore, time: SHIFT_TIME, score: 0, streak: 0, lastDelivery: -99, delivered: 0, resolved: 0, perfect: 0, bestCombo: 0, topSpeed: 0, throwCd: 0,
-      camHeading: van.heading, elapsed: 0, cargo: null, airBest: 0, spawnCd: 0, district: district(van.pos.x, van.pos.z), seen: new Set() });
+      camHeading: van.heading, elapsed: 0, cargo: null, airBest: 0, spawnCd: 0, post: null, toss: null, lastStop: null, stillT: 0, slowK: 0, coffeeCd: 0, wasSlow: false, district: district(van.pos.x, van.pos.z), seen: new Set() });
     for (const p of pickups) { p.active = true; p.g.visible = true; }
     for (const p of parcels) { p.active = false; p.m.visible = false; p.ride = false; }
     hud.hideOverlay(); hud.setPlaying(true); hud.setScore(0, 0); hud.setCargo(null);
@@ -317,6 +331,30 @@ export function initGame(app) {
     hud.toast(explore ? 'Explore' : 'Shift started', explore ? 'No clock. Find the landmarks, take jobs if you like.' : 'Every delivery adds time. Jobs keep coming.');
   };
   const resolve = () => { S.resolved++; S.spawnCd = 1.0; };
+  const fishMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.6, 3, 8).rotateZ(Math.PI / 2).scale(1, 1, 0.5), new THREE.MeshStandardMaterial({ color: 0xc8cfd4, roughness: 0.25, emissive: 0x8a8478, emissiveIntensity: 1 }));
+  fishMesh.visible = false; scene.add(fishMesh);
+  function loadCargo(t, bonus = 0) {
+    const rule = t.rule || {};
+    const d = doorOf(t.dest); const far = Math.hypot(d.x - t.x, d.z - t.z);
+    t.x = d.x; t.z = d.z; t.y = doorY(d); t.name = t.dest.name; t.dest = null; t.g.position.set(t.x, t.y, t.z);
+    setKind(t, 'grocery'); t.tag = t.cargo;
+    S.cargo = { cond: 100, label: t.cargo, rule, bonus }; hud.setCargo(100, t.cargo);
+    van.heavy = !!rule.heavy;
+    if (rule.chilled) t.expire = Math.round(26 + far / 8);
+    const how = rule.chilled ? `Keep it cold: ${t.expire} s to deliver` : rule.heavy ? 'Heavy load: the van is slower. Hand over below 20 mph' : rule.fragile ? 'Corner gently, hand over below 20 mph' : 'Throw it like any parcel';
+    hud.toast(`${t.cargo.charAt(0)}${t.cargo.slice(1).toLowerCase()} on board`, `For ${t.name} · ${how}`, 'place'); audio.play('place');
+  }
+  function catchToss() {
+    const T = S.toss; if (!T) return;
+    const off = Math.abs(T.t - T.dur);
+    if (off < 0.28) {
+      const bonus = off < 0.1 ? 150 : 60;
+      S.toss = null; fishMesh.visible = false; hud.prompt(null);
+      const sp = project(van.pos.x, van.y + 3.4, van.pos.z);
+      hud.pop(sp.x, sp.y, off < 0.1 ? 'PERFECT CATCH' : 'CAUGHT', off < 0.1 ? 'perfect' : ''); audio.play(off < 0.1 ? 'perfect' : 'good');
+      loadCargo(T.job, bonus);
+    } else if (T.t < T.dur) { S.toss = null; fishMesh.visible = false; T.job.tossCd = 1.6; hud.prompt(null); hud.toast('Too early!', 'Wait for it to reach you'); audio.play('miss'); }
+  }
   const endShift = (won) => {
     S.mode = 'end';
     const sc = S.score;
@@ -327,7 +365,8 @@ export function initGame(app) {
     if (isBest) { best = sc; try { localStorage.setItem(bkey, String(Math.round(best))); } catch { /* ignore */ } }
     audio.play(won ? 'win' : 'lose');
     hud.setPlaying(false);
-    hud.showResults({ won, explore: S.explore, grade, score: sc, delivered: S.delivered, perfect: S.perfect, bestCombo: S.bestCombo, topSpeed: S.topSpeed, best: isBest, bestScore: best, album: album.size, places: POIS.length, minutes: S.elapsed / 60 }, () => startShift(S.explore), () => { S.mode = 'title'; S.titleT = 0; showTitle(); });
+    S.post = null; S.toss = null; fishMesh.visible = false; hud.postcard(null); hud.prompt(null); van.limit = 0; van.heavy = false;
+    hud.showResults({ won, explore: S.explore, grade, score: sc, delivered: S.delivered, perfect: S.perfect, bestCombo: S.bestCombo, topSpeed: S.topSpeed, best: isBest, bestScore: best, album: album.size, places: PLACES, minutes: S.elapsed / 60 }, () => startShift(S.explore), () => { S.mode = 'title'; S.titleT = 0; showTitle(); });
   };
 
   addEventListener('keydown', (e) => {
@@ -338,7 +377,7 @@ export function initGame(app) {
     if (e.code === 'KeyE' && S.mode !== 'play') startShift(true);
     if (e.code === 'Escape' && S.mode === 'play') endShift(false);
     if (e.code === 'Tab' && S.mode === 'play') { e.preventDefault(); S.navSkip = (S.navSkip || 0) + 1; }
-    if (e.code === 'Space' && S.mode === 'play') throwParcel();
+    if (e.code === 'Space' && S.mode === 'play') { if (S.post) S.post = null; else if (S.toss) catchToss(); else throwParcel(); }
     if (e.code === 'KeyR' && S.mode === 'play') { const a = nearestRoadPoint(van.pos.x, van.pos.z); van.reset(a.x, a.z, a.h); }
     if (e.code === 'KeyM') hud.toast(audio.toggleMute() ? 'Sound off' : 'Sound on');
     if (e.code === 'KeyT') setWeather(!S.clear);
@@ -419,9 +458,12 @@ export function initGame(app) {
       if (hit.kind === 'tram') { p.ride = true; note = 'Landed on the streetcar'; }
       if (hit.kind === 'boat') note = 'Dock drop';
       if (hit.kind === 'grocery') {
-        if (mph > 20) { S.cargo.cond = Math.max(5, S.cargo.cond - 40); hud.pop(sp.x, sp.y - 34, 'THROWN TOO HARD', 'miss'); }
-        base = K.base * S.cargo.cond / 100; note = `${S.cargo.label === 'FRESH FISH' ? 'Fish' : 'Groceries'} ${Math.round(S.cargo.cond)}% intact`;
-        S.cargo = null; hud.setCargo(null);
+        const rule = S.cargo.rule || {};
+        if (rule.gentle && mph > 20) { S.cargo.cond = Math.max(5, S.cargo.cond - 40); hud.pop(sp.x, sp.y - 34, 'THROWN TOO HARD', 'miss'); }
+        base = K.base * S.cargo.cond / 100 + (rule.gentle ? 0 : Math.min(140, mph * 2.2)) + (S.cargo.bonus || 0);
+        const what = S.cargo.label.charAt(0) + S.cargo.label.slice(1).toLowerCase();
+        note = rule.fragile ? `${what} ${Math.round(S.cargo.cond)}% intact` : `${what} delivered`;
+        S.cargo = null; hud.setCargo(null); van.heavy = false;
       }
       const pts = Math.round(base * (perfect ? 2 : 1) * (1 + 0.5 * (S.streak - 1)) / 5) * 5;
       bonus += Math.round((hit.far || 0) / 22);
@@ -450,7 +492,8 @@ export function initGame(app) {
     if (x < CAMPUS.x1 && z > CAMPUS.z0 && z < CAMPUS.z1) return 'Seattle Center';
     if (x < MARKET.x1 && z > MARKET.z0) return 'Pike Place Market';
     const a = AVENUES.find(a => Math.abs(x - a.x) < a.hw + 1 && avenueAt(a, z)), s = STREETS.find(s => Math.abs(z - s.z) < s.hw + 1 && streetAt(s, x));
-    if (a && s) return `${avenueName(a, z)} & ${s.name}`;
+    if (a && s && !(a.brick && z > 430)) return `${avenueName(a, z)} & ${s.name}`;
+    if (a && a.brick && z > 430) return s ? `Pike Place & ${s.name}` : 'Pike Place';
     if (a) return avenueName(a, z); if (s) return s.name;
     return 'Sidewalk';
   }
@@ -461,7 +504,7 @@ export function initGame(app) {
   function chaseCamera(dt, snap) {
     const sp = van.speed;
     S.camHeading = angleLerp(S.camHeading, van.heading, Math.min(1, dt * (2.6 + sp * 0.06)));
-    const dist = 8.4 + sp * 0.085, height = 3.5 + sp * 0.03;
+    const dist = (8.4 + sp * 0.085) * (1 - 0.16 * S.slowK), height = (3.5 + sp * 0.03) * (1 - 0.22 * S.slowK);
     camPos.set(van.pos.x - Math.cos(S.camHeading) * dist, van.y + height, van.pos.z - Math.sin(S.camHeading) * dist);
     // keep the camera out of buildings
     for (const b of world.colliders) {
@@ -482,6 +525,19 @@ export function initGame(app) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
   }
+  // stop beside a landmark and the camera drifts in for a look
+  function postcardCamera(dt) {
+    const P = S.post, s = P.stop; P.t += dt;
+    const ly = s.relY ? heightAt(s.look[0], s.look[2]) + s.look[1] + 6 : s.look[1];
+    const base = Math.atan2(s.z - s.look[2], s.x - s.look[0]);
+    const a = base + Math.sin(P.t * 0.42) * 0.42, d = s.dist * (1 - 0.12 * Math.min(1, P.t / 5));
+    camPos.set(s.look[0] + Math.cos(a) * d, Math.max(groundHeight(s.look[0] + Math.cos(a) * d, s.look[2] + Math.sin(a) * d) + 1.5, ly + (s.lift ?? 0.9)), s.look[2] + Math.sin(a) * d);
+    camera.position.lerp(camPos, 1 - Math.exp(-dt * 2.2));
+    lookSm.lerp(camLook.set(s.look[0], ly, s.look[2]), 1 - Math.exp(-dt * 3));
+    camera.lookAt(lookSm);
+    camera.fov += ((s.dist > 60 ? 50 : 42) - camera.fov) * Math.min(1, dt * 2); camera.updateProjectionMatrix();
+    if (P.t > 8 || keys.has('KeyW') || keys.has('ArrowUp') || keys.has('KeyS') || keys.has('ArrowDown')) { S.post = null; hud.postcard(null); }
+  }
   function titleCamera(dt) {
     S.titleT += dt;
     const a = -0.9 + Math.sin(S.titleT * 0.11) * 0.55;
@@ -496,7 +552,7 @@ export function initGame(app) {
   let frameN = 0;
   const album = new Set();
   try { for (const n of JSON.parse(localStorage.getItem('emerald-dash-album') || '[]')) album.add(n); } catch { /* ignore */ }
-  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length);
+  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length + BASE_STOPS.length + world.pike.stops.length);
   showTitle();
   hud.setClock(SHIFT_TIME, []);
   van.reset(1.9, 238, -Math.PI / 2); van.sync();
@@ -524,6 +580,12 @@ export function initGame(app) {
     }
     if (app.autoDrive) Object.assign(input, app.autoDrive);
     if (!playing) { input.throttle = 0; input.steer = 0; input.drift = false; }
+    const slow = playing && inSlow(van.pos.x, van.pos.z);
+    van.limit = slow ? 6.2 : 0;
+    S.slowK += ((slow ? 1 : 0) - S.slowK) * Math.min(1, dt * 2.2);
+    if (slow && !S.wasSlow) hud.banner('Pike Place Market');
+    S.wasSlow = slow;
+    if (S.post) { input.throttle = 0; input.steer = 0; }
     van.update(dt, input);
 
     const fxv = Math.cos(van.heading), fzv = Math.sin(van.heading);
@@ -584,6 +646,23 @@ export function initGame(app) {
       S.topSpeed = Math.max(S.topSpeed, van.speed * 2.237);
       if (!S.explore && S.time <= 10 && Math.floor(S.time) !== Math.floor(S.time + dt)) audio.play('tick');
       if (!S.explore && S.time <= 0) endShift(false);
+      // stopping beside a landmark opens its postcard
+      S.stillT = van.speed < 0.6 && !S.toss ? S.stillT + dt : 0;
+      if (!S.post && S.stillT > 0.7) {
+        const st = STOPS.find(q => Math.hypot(q.x - van.pos.x, q.z - van.pos.z) < 6.5);
+        if (st && st !== S.lastStop) {
+          S.post = { stop: st, t: 0 }; S.lastStop = st; hud.postcard(st.name, st.sub); audio.play('place');
+          if (!S.seen.has(st.name)) { S.seen.add(st.name); S.score += 200; hud.setScore(S.score, S.streak); }
+          if (!album.has(st.name)) { album.add(st.name); try { localStorage.setItem('emerald-dash-album', JSON.stringify([...album])); } catch { /* ignore */ } }
+        }
+      }
+      if (S.lastStop && Math.hypot(S.lastStop.x - van.pos.x, S.lastStop.z - van.pos.z) > 14) S.lastStop = null;
+      if (S.post) { if (!S.explore) S.time += dt; }      // the clock waits while you look
+      // coffee from the first store: a longer turbo
+      S.coffeeCd -= dt;
+      const cf = world.pike.coffee;
+      if (S.coffeeCd <= 0 && Math.hypot(cf.x - van.pos.x, cf.z - van.pos.z) < 4.5) { S.coffeeCd = 30; S.boostBank = 6; hud.toast('Coffee from the first store', 'A long turbo is waiting when you leave the market'); audio.play('boost'); }
+      if (S.boostBank && !slow) { van.boost = S.boostBank; S.boostBank = 0; }
       const dk = district(van.pos.x, van.pos.z);
       if (dk !== S.district && dk !== 'none') { S.district = dk; hud.banner(DISTRICT_LABEL[dk]); }
       if (S.streak > 0 && S.elapsed - S.lastDelivery > 16) { S.streak = 0; hud.setScore(S.score, 0); }
@@ -616,20 +695,36 @@ export function initGame(app) {
       for (const t of targets) {
         if (t.done) continue;
         if (t.kind === 'tram') { t.x = tr.x; t.z = tr.z; t.vz = tr.dir * tr.v; t.g.position.set(t.x, TRAM_ROOF, t.z); }
-        if (t.kind === 'pickup' && Math.hypot(van.pos.x - t.x, van.pos.z - t.z) < 4.6) {
-          const d = doorOf(t.dest); t.x = d.x; t.z = d.z; t.y = doorY(d); t.name = t.dest.name; t.dest = null; t.g.position.set(t.x, t.y, t.z);
-          setKind(t, 'grocery'); t.tag = t.cargo; S.cargo = { cond: 100, label: t.cargo }; hud.setCargo(100, t.cargo);
-          hud.toast(t.cargo === 'FRESH FISH' ? 'Fish loaded' : 'Groceries loaded', `For ${t.name} · drive gently, hand over below 20 mph`, 'place'); audio.play('place');
+        if (t.kind === 'pickup' && !S.toss && Math.hypot(van.pos.x - t.x, van.pos.z - t.z) < 4.6) {
+          if (t.rule.toss) {
+            // the fishmonger throws it: stop, then catch
+            if (van.speed < 2.5 && (t.tossCd || 0) <= 0) { S.toss = { t: 0, dur: 1.15, job: t, from: new THREE.Vector3(PIKE.arcade.x1 + 1.9, PIKE.Y + 1.6, t.z) }; fishMesh.visible = true; hud.prompt('CATCH IT — SPACE'); audio.play('throw'); }
+            else if (van.speed >= 2.5 && !t.hinted) { t.hinted = true; hud.toast('Stop by the fish stall', 'They throw, you catch'); }
+          } else loadCargo(t);
         }
+        if (t.tossCd > 0) t.tossCd -= dt;
         if (t.expire !== undefined) {
           t.expire -= dt;
-          if (t.expire <= 0) { t.done = true; t.failed = true; t.fade = 1; S.streak = 0; hud.setScore(S.score, 0); hud.toast('Rush order expired', t.name, 'rush'); audio.play('miss'); resolve(); }
+          if (t.expire <= 0) {
+            const melted = t.kind === 'grocery';
+            t.done = true; t.failed = true; t.fade = 1; S.streak = 0; hud.setScore(S.score, 0);
+            hud.toast(melted ? 'Too slow: it melted' : 'Rush order expired', t.name, 'rush'); audio.play('miss'); resolve();
+            if (melted) { S.cargo = null; hud.setCargo(null); van.heavy = false; }
+          }
         }
       }
+      // a fish in the air
+      if (S.toss) {
+        const T = S.toss; T.t += dt;
+        const k = Math.min(1, T.t / T.dur);
+        fishMesh.position.lerpVectors(T.from, tmp.set(van.pos.x, van.y + 2.9, van.pos.z), k); fishMesh.position.y += Math.sin(k * Math.PI) * 3.2;
+        fishMesh.rotation.set(T.t * 9, T.t * 5, 0.5);
+        if (T.t > T.dur + 0.28) { S.toss = null; fishMesh.visible = false; T.job.tossCd = 1.6; hud.prompt(null); hud.toast('Dropped it!', 'Stay put, they will throw another'); audio.play('thud'); }
+      }
       if (S.cargo) {
-        const g = Math.abs(van.yawRate * (van.vf || 0));
-        if (g > 8.5) S.cargo.cond = Math.max(5, S.cargo.cond - (g - 8.5) * dt * 2.4);
-        if (van.impact > 0.9 * (S.cargo.lastImpact ?? 9) + 0.15) S.cargo.cond = Math.max(5, S.cargo.cond - van.impact * 30);
+        const g = Math.abs(van.yawRate * (van.vf || 0)), lim = (S.cargo.rule || {}).fragile;
+        if (lim && g > lim) S.cargo.cond = Math.max(5, S.cargo.cond - (g - lim) * dt * 2.4);
+        if (lim && van.impact > 0.9 * (S.cargo.lastImpact ?? 9) + 0.15) S.cargo.cond = Math.max(5, S.cargo.cond - van.impact * 30);
         S.cargo.lastImpact = van.impact;
         hud.setCargo(S.cargo.cond, S.cargo.label);
       }
@@ -694,6 +789,7 @@ export function initGame(app) {
     prevCam.copy(camera.position);
     if (app.freeCam) { /* debug camera fixed by URL */ }
     else if (S.mode === 'title') titleCamera(dt);
+    else if (S.post) postcardCamera(dt);
     else chaseCamera(dt, false);
     camVel.subVectors(camera.position, prevCam).divideScalar(Math.max(dt, 1e-3));
     if (camVel.length() > 80) camVel.set(0, 0, 0);
@@ -737,7 +833,7 @@ export function initGame(app) {
     // HUD
     if (playing) {
       const chips = targets.map(t => ({ css: t.css, state: t.failed ? 'fail' : t.done ? 'done' : 'todo' }));
-      hud.setClock(S.time, chips, S.explore ? `LANDMARKS ${album.size}/${POIS.length}` : null, S.delivered);
+      hud.setClock(S.time, chips, S.explore ? `LANDMARKS ${album.size}/${PLACES}` : null, S.delivered);
       hud.setSpeed(van.speed * 2.237, Math.max(0, van.boost) / 3.6);
       if (frameN % 6 === 0) hud.setStreet(streetName());
       if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars, nav);

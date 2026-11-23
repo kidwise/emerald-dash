@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="512" viewBox="0 0 1536 512">
+
+<rect width="1536" height="512" fill="#06070a"/>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round" text-anchor="middle" font-family="'Avenir Next Condensed', 'Futura', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif" font-weight="800">
+  <text x="768" y="230" font-size="210" letter-spacing="14" stroke="#ff3b2e" stroke-width="22" opacity=".28">FARMERS</text>
+  <text x="768" y="230" font-size="210" letter-spacing="14" stroke="#ff5a4a" stroke-width="7" fill="#ffd9d2">FARMERS</text>
+  <text x="768" y="430" font-size="190" letter-spacing="26" stroke="#ff3b2e" stroke-width="22" opacity=".28">MARKET</text>
+  <text x="768" y="430" font-size="190" letter-spacing="26" stroke="#ff5a4a" stroke-width="7" fill="#ffd9d2">MARKET</text>
+</g>
+<rect x="26" y="26" width="1484" height="460" rx="40" fill="none" stroke="#38e08c" stroke-width="20" opacity=".25"/>
+<rect x="26" y="26" width="1484" height="460" rx="40" fill="none" stroke="#7dffb9" stroke-width="6"/>
+</svg>

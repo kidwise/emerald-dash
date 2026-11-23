@@ -229,7 +229,8 @@ export function createBuildings() {
     } else if (c.kind === 'market') {
       // sheds along the west side of 1st Ave, with the open waterfront deck behind them
       const hall = c.zm > 528;
-      add(hall ? 'market' : 'brick', { x0: x1 - 19, x1, z0: z0 + 3, z1: z1 - 3 }, hall ? { floors: 1 } : { floors: 3 }, hall ? `Pike Place Market, ${short(c.street)} Arcade` : null, c, MARKET_Y);
+      const arcade = Math.round(c.zm) === 660 ? 6.5 : 0;     // the open Main Arcade stands in front of this block
+      add(hall ? 'market' : 'brick', { x0: x1 - 19, x1: x1 - arcade, z0: z0 + 3, z1: z1 - 3 }, hall ? { floors: 1 } : { floors: 3 }, hall ? `Pike Place Market, ${short(c.street)} Arcade` : null, c, MARKET_Y);
     } else if (c.kind === 'sluW') {
       const split = w > 60 && r() < 0.5;
       const parts = split ? [[x0, x0 + w * 0.47], [x0 + w * 0.53, x1]] : [[x0, x1]];
@@ -254,7 +255,8 @@ export function createBuildings() {
         const [type, o] = randomSpec('hill');
         const n = 3, floors = (o.floors || 6);
         for (let k = 0; k < n; k++) {
-          const a = x0 + (w * k) / n, b = x0 + (w * (k + 1)) / n;
+          const shops = k === 0 && Math.round(c.xm) === -396 && (Math.round(c.zm) === 660 || Math.round(c.zm) === 484) ? 4 : 0;   // Pike Place shopfronts
+          const a = x0 + (w * k) / n + shops, b = x0 + (w * (k + 1)) / n;
           add(type, { x0: a, x1: b, z0, z1 }, { ...o, floors: floors + (k === 1 ? 2 : 0) }, null, c, hillF(a) - 0.4);
         }
       } else {

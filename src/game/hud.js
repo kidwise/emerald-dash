@@ -24,7 +24,9 @@ export function createHud() {
   const toasts = el('div', 'hud-toasts');
   const pops = el('div', 'hud-pops');
   const overlay = el('div', 'hud-overlay');
-  root.append(top, bottom, pins, pops, toasts, overlay);
+  const card = el('div', 'postcard');
+  const promptEl = el('div', 'hud-prompt');
+  root.append(top, bottom, pins, pops, toasts, card, promptEl, overlay);
 
   const q = (p, s) => p.querySelector(s);
   const state = { pinEls: [] };
@@ -58,6 +60,12 @@ export function createHud() {
       if (v !== null) { q(cargo, 'i').style.width = `${Math.round(v)}%`; q(cargo, 'b').textContent = `${Math.round(v)}%`; cargo.classList.toggle('bad', v < 55); }
     },
     setStreet(name) { const s = q(street, 'span'); if (s.textContent !== name) s.textContent = name; },
+    postcard(name, sub) {
+      card.classList.toggle('show', !!name);
+      root.classList.toggle('looking', !!name);
+      if (name) card.innerHTML = `<small>LANDMARK</small><b>${name}</b><span>${sub}</span><i>W to drive on</i>`;
+    },
+    prompt(text) { promptEl.classList.toggle('show', !!text); if (text) promptEl.textContent = text; },
     banner(text) {
       const b = el('div', 'banner', text); root.append(b);
       setTimeout(() => b.remove(), 3200);

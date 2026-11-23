@@ -303,6 +303,7 @@ export function createParkedCars(colliders) {
   for (const a of AVENUES) {
     const zs = STREETS.filter(s => isNode(a, s)).sort((p, q) => p.z - q.z);
     for (let i = 0; i < zs.length - 1; i++) for (const s of [-1, 1]) {
+      if (a.brick && zs[i].z > 430) continue;                 // Pike Place stays clear so the stalls can be seen
       along(zs[i].z + zs[i].hw + 9, zs[i + 1].z - zs[i + 1].hw - 9, (z) => {
         if (a.x === 0 && z > 210 && z < 258) return;          // keep the start line clear
         slots.push({ x: a.x + s * (a.hw - 1.2), z: z + 3, ry: s > 0 ? Math.PI / 2 : -Math.PI / 2 });

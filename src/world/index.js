@@ -5,6 +5,7 @@ import { createRain, createSteam } from './rain.js';
 import { createLake, createPark, createStreetcar } from './landmarks.js';
 import { createMonorail, createMarket, createRetailCore, createCenter } from './districts.js';
 import { MARKET_Y } from '../config.js';
+import { createPikePlace } from './market.js';
 import { AVENUES, STREETS } from '../config.js';
 import { createTraffic } from './traffic.js';
 import { createPedestrians } from './pedestrians.js';
@@ -33,6 +34,7 @@ export async function initWorld(app) {
   const bay = createLake(app.reflection, { planar: 0, x: -1170, w: 1300, z: 700, d: 1500, y: MARKET_Y - 3 }); scene.add(bay.mesh);
   const monorail = createMonorail(obstacles); scene.add(monorail.group);
   const market = createMarket(obstacles); scene.add(market.group); glow.push(...market.glow);
+  const pike = createPikePlace(colliders, obstacles); scene.add(pike.group); glow.push(...pike.glow);
   const retail = createRetailCore(obstacles, buildings.lots); scene.add(retail.group); glow.push(...retail.glow);
   const center = createCenter(colliders, obstacles); scene.add(center.group); glow.push(...center.glow);
   const streetcar = createStreetcar(); scene.add(streetcar.group); colliders.push(streetcar.collider);
@@ -76,7 +78,7 @@ export async function initWorld(app) {
     park.update(t);
     park.facadeUniforms.uTime.value = t;
     lake.uniforms.uTime.value = t; bay.uniforms.uTime.value = t;
-    monorail.update(dt); market.update(t); center.update(t, app.camera.position);
+    monorail.update(dt); market.update(t); pike.update(t); center.update(t, app.camera.position);
     steam.uniforms.uTime.value = t;
     rain.uniforms.uTime.value = t;
     // skip prop tiles that are lost in the rain anyway
@@ -87,7 +89,7 @@ export async function initWorld(app) {
     steam.uniforms.uScale.value = sc;
   });
 
-  app.world = { monorail, colliders, obstacles, buildings, lamps, trees, signals, parked, streetcar, traffic, peds, rain, steam, lake, park, updateLampPool };
+  app.world = { pike, monorail, colliders, obstacles, buildings, lamps, trees, signals, parked, streetcar, traffic, peds, rain, steam, lake, park, updateLampPool };
   app.updateWorld = (dt) => { for (const u of updaters) u(dt); };
   app.update = (dt) => app.updateWorld(dt);
   void AVENUES; void STREETS;

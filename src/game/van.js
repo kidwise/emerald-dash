@@ -278,13 +278,16 @@ export class Van {
     let vr = this.vel.x * rx + this.vel.y * rz;
     const boosting = this.boost > 0;
     if (boosting) this.boost -= dt;
-    const vmax = boosting ? P.vmaxBoost : P.vmax;
+    let vmax = boosting ? P.vmaxBoost : P.vmax;
+    if (this.heavy) vmax *= 0.9;
+    if (this.limit) vmax = Math.min(vmax, this.limit);
     const kerbDrag = this.onKerb ? 0.9 : 0;
 
     // drive / brake / reverse
     this.braking = false;
     let acc = 0;
-    if (input.throttle > 0) acc = input.throttle * P.accel * (boosting ? 1.9 : 1) * Math.max(0, 1 - vf / vmax) + (vf < 0 ? P.brake * 0.6 : 0);
+    if (input.throttle > 0) acc = input.throttle * P.accel * (boosting ? 1.9 : 1) * (this.heavy ? 0.78 : 1) * Math.max(0, 1 - vf / vmax) + (vf < 0 ? P.brake * 0.6 : 0);
+    if (this.limit && vf > this.limit) acc -= (vf - this.limit) * 2.5;
     else if (input.throttle < 0) {
       if (vf > 0.8) { acc = -P.brake; this.braking = true; }
       else acc = -P.accel * 0.6 * Math.max(0, 1 + vf / P.reverse);

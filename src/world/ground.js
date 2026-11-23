@@ -15,6 +15,8 @@ void main(){
 
 const FRAG = /* glsl */`
 uniform sampler2D tReflect;
+uniform sampler2D tBrick;
+uniform sampler2D tBrickN;
 uniform mat4 uReflectMatrix;
 uniform float uTime;
 uniform float uPlaneY;
@@ -101,6 +103,7 @@ void main(){
   float nHi = vnoise(p * 23.0);
 
   vec3 albedo; float rough; float puddle; float reflK; float bump;
+  vec2 extraTilt = vec2(0.0);
   vec3 N = vec3(0.0, 1.0, 0.0);
 
 #if MODE == 0
@@ -132,12 +135,11 @@ void main(){
   // streetcar track slab + rails on Westlake
   if (avI == ${BRICK_INDEX} && avD < 0.0) {
     // Pike Place: worn red brick paving
-    vec2 bq = p / vec2(0.11, 0.22); bq.y += 0.5 * mod(floor(bq.x), 2.0);
-    vec2 bf = fract(bq); float bw = fwidth(bq.x) + fwidth(bq.y);
-    float mortar = (1.0 - smoothstep(0.04 + bw, 0.09 + bw, min(min(bf.x, 1.0 - bf.x), min(bf.y, 1.0 - bf.y)))) / (1.0 + bw * 3.0);
-    vec3 brick = vec3(0.16, 0.055, 0.04) * (0.7 + 0.6 * hash12(floor(bq)) * detail + 0.3 * (1.0 - detail)) * (0.8 + 0.4 * nLow);
-    albedo = mix(albedo, brick * (1.0 - 0.5 * mortar), 1.0 - paint.a * 0.85);
-    rough = mix(0.30, 0.03, puddle); bump = 0.7 * (1.0 - puddle);
+    vec2 buv = p.yx / 2.6;
+    vec3 brick = texture2D(tBrick, buv).rgb * 0.46 * (0.8 + 0.4 * nLow);
+    albedo = mix(albedo, brick, 1.0 - paint.a * 0.85);
+    extraTilt = (texture2D(tBrickN, buv).xy * 2.0 - 1.0) * 0.30 * (1.0 - puddle) * detail;
+    rough = mix(0.26, 0.03, puddle); bump = 0.2 * (1.0 - puddle);
   }
   if (avI == ${WESTLAKE_INDEX} && avD < 0.0 && p.y < 252.0) {
     float tc = abs(abs(avC) - 5.2);
@@ -204,7 +206,7 @@ void main(){
   float m0 = vnoise(p * 2.3), mx = vnoise((p + vec2(0.15, 0.0)) * 2.3), mz = vnoise((p + vec2(0.0, 0.15)) * 2.3);
   vec2 grad2 = vec2(mx - m0, mz - m0);
   vec2 rip = ripple(p, uTime) * puddle * 0.05 * smoothstep(70.0, 12.0, dist) * uRain;
-  vec2 tilt = (grad * 0.26 + grad2 * 0.10) * bump + rip;
+  vec2 tilt = (grad * 0.26 + grad2 * 0.10) * bump + rip + extraTilt;
   if (vN.y > 0.5) N = normalize(vec3(-tilt.x, 1.0, -tilt.y));
 
   // ---------------- lighting ----------------
@@ -272,6 +274,12 @@ void main(){
   gl_FragColor = vec4(clamp(col, vec3(0.0), vec3(48.0)), 1.0);
 }`;
 
+function loadTex(path, srgb) {
+  const t = new THREE.TextureLoader().load(path);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 function roundedRect(x0, x1, z0, z1, r) {
   // r = corner radii [NW, NE, SE, SW]; shape y = -z (the extrusion is rotated to lie flat)
   const [rnw, rne, rse, rsw] = Array.isArray(r) ? r : [r, r, r, r];
@@ -304,6 +312,7 @@ export function createGround(reflection) {
     tReflect: { value: reflection.rt.texture },
     uReflectMatrix: { value: reflection.textureMatrix },
     uTime: { value: 0 }, uPlaneY: { value: 0 }, uRain: { value: 1 },
+    tBrick: { value: loadTex('/assets/tex/brick_pavement_02_diff.jpg', true) }, tBrickN: { value: loadTex('/assets/tex/brick_pavement_02_nor.jpg', false) },
     uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) },
     uFogDensity: { value: FOG_DENSITY },
     uAmbient: { value: new THREE.Color(0.20, 0.30, 0.50) },
