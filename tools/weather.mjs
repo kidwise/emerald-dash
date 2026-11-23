@@ -8,7 +8,7 @@ page.on('console', m => { if (m.type() === 'error') console.log('console error',
 await page.goto('http://localhost:5173/', { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true && window.__app.game', { timeout: 40000 });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-await page.evaluate(() => window.__app.game.startShift(process?.x || 'center')).catch(() => page.evaluate(() => window.__app.game.startShift('center')));
+await page.evaluate(() => { const g = window.__app.game; g.startShift(false); g.van.reset(-150, 262, Math.PI); });
 await page.keyboard.down('KeyW'); await sleep(2500);
 await page.keyboard.press('KeyT'); await sleep(2500);
 await page.screenshot({ path: 'shots/clear.png' });

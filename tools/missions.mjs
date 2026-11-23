@@ -10,6 +10,7 @@ await page.waitForFunction('window.__ready === true && window.__app.game', { tim
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const ev = (f, ...a) => page.evaluate(f, ...a);
 await page.keyboard.press('Enter'); await sleep(400);
+await ev(() => { const a = window.__app, g = a.game; g.state.time = 999; const p = g.spawnJob('pickup'); p.dest = a.world.buildings.lots.find(l => l.name === 'Kumo Building'); g.spawnJob('tram'); g.spawnJob('boat'); });
 const kinds = () => ev(() => window.__app.game.targets.map(t => `${t.kind}${t.done ? (t.failed ? ':failed' : ':done') : ''}`).join(' '));
 console.log('jobs:', await kinds());
 // throw at a given kind once the landing marker lines up; the van is placed and driven by the caller
@@ -49,7 +50,7 @@ await sleep(1200); await page.keyboard.up('KeyW');
 console.log('after dock:', JSON.stringify(await state()));
 
 // 4. rush order appears on its own and expires if ignored
-await ev(() => { window.__app.game.state.rushAt = 0; }); await sleep(500);
+await ev(() => { const g = window.__app.game; g.van.reset(1.9, 100, -Math.PI / 2); g.spawnJob('rush'); }); await sleep(500);
 console.log('rush spawned:', await kinds());
 await ev(() => { const t = window.__app.game.targets.find(t => t.kind === 'rush'); t.expire = 0.3; }); await sleep(900);
 console.log('rush expired:', await kinds(), JSON.stringify(await state()));

@@ -7,7 +7,7 @@ export function createHud() {
   root.innerHTML = '';
   const top = el('div', 'hud-top');
   const score = el('div', 'hud-score', '<span class="lbl">SCORE</span><span class="val">0</span><span class="combo"></span>');
-  const clock = el('div', 'hud-clock', '<span class="time">2:30</span><span class="orders"></span>');
+  const clock = el('div', 'hud-clock', '<span class="time">2:30</span><span class="orders"></span><span class="count"></span>');
   const mapWrap = el('div', 'hud-map');
   const map = el('canvas'); map.width = 300; map.height = 440; mapWrap.append(map);
   top.append(score, clock, mapWrap);
@@ -15,7 +15,7 @@ export function createHud() {
   const bottom = el('div', 'hud-bottom');
   const speed = el('div', 'hud-speed', '<span class="val">0</span><span class="unit">MPH</span><div class="boost"><i></i></div>');
   const street = el('div', 'hud-street', '<span>Westlake Ave N</span>');
-  const hint = el('div', 'hud-hint', '<b>W A S D</b> drive &nbsp;·&nbsp; <b>SPACE</b> throw parcel &nbsp;·&nbsp; <b>SHIFT</b> drift &nbsp;·&nbsp; <b>R</b> reset &nbsp;·&nbsp; <b>T</b> weather &nbsp;·&nbsp; <b>M</b> mute');
+  const hint = el('div', 'hud-hint', '<b>SPACE</b> throw &nbsp;·&nbsp; <b>SHIFT</b> drift &nbsp;·&nbsp; <b>TAB</b> next job &nbsp;·&nbsp; <b>T</b> weather &nbsp;·&nbsp; <b>ESC</b> end');
   const cargo = el('div', 'hud-cargo', '<span>GROCERIES</span><div><i></i></div><b>100%</b>');
   cargo.style.display = 'none';
   bottom.append(speed, street, hint, cargo);
@@ -39,10 +39,11 @@ export function createHud() {
       c.classList.toggle('on', combo > 1);
     },
     bumpScore() { score.classList.remove('bump'); void score.offsetWidth; score.classList.add('bump'); },
-    setClock(t, chips) {
+    setClock(t, chips, label, delivered) {
       const s = Math.max(0, Math.ceil(t));
-      q(clock, '.time').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-      clock.classList.toggle('low', t < 20);
+      q(clock, '.time').textContent = label || `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      clock.classList.toggle('low', !label && t < 20); clock.classList.toggle('label', !!label);
+      if (delivered !== undefined) q(clock, '.count').textContent = delivered ? `${delivered} DELIVERED` : '';
       const html = chips.map(c => `<i class="${c.state}" style="--c:${c.css}"></i>`).join('');
       if (html !== state.chips) { state.chips = html; q(clock, '.orders').innerHTML = html; }
     },
@@ -57,6 +58,10 @@ export function createHud() {
       if (v !== null) { q(cargo, 'i').style.width = `${Math.round(v)}%`; q(cargo, 'b').textContent = `${Math.round(v)}%`; cargo.classList.toggle('bad', v < 55); }
     },
     setStreet(name) { const s = q(street, 'span'); if (s.textContent !== name) s.textContent = name; },
+    banner(text) {
+      const b = el('div', 'banner', text); root.append(b);
+      setTimeout(() => b.remove(), 3200);
+    },
     toast(title, sub, cls = '') {
       const t = el('div', 'toast ' + cls, `<b>${title}</b>${sub ? `<span>${sub}</span>` : ''}`);
       toasts.append(t);
@@ -83,44 +88,48 @@ export function createHud() {
         q(p, 'i').style.transform = `rotate(${d.angle}rad)`;
       });
     },
-    showTitle(onStart, districts, selected, onSelect) {
+    showTitle(onStart, onExplore, found, places) {
       overlay.className = 'hud-overlay title show';
       overlay.innerHTML = `
         <div class="panel">
-          <div class="kicker">SEATTLE · EVENING SHIFT</div>
+          <div class="kicker">SEATTLE · ONE RAINY EVENING</div>
           <h1>EMERALD <em>DASH</em></h1>
-          <p class="sub">Ten jobs. One rainy night. Fling parcels onto doorsteps without lifting off the throttle.</p>
-          <div class="districts">${Object.entries(districts).map(([k, d], i) => `<button class="district ${k === selected ? 'on' : ''}" data-k="${k}"><small>${i + 1}</small><b>${d.label}</b><span>${d.sub}</span></button>`).join('')}</div>
+          <p class="sub">One city, from Lake Union to Pike Place to the Space Needle. Jobs come to you wherever you drive.</p>
           <div class="keys">
             <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Drive</span></div>
             <div><kbd class="wide">SPACE</kbd><span>Throw</span></div>
             <div><kbd class="wide">SHIFT</kbd><span>Drift</span></div>
+            <div><kbd class="wide">TAB</kbd><span>Next job</span></div>
           </div>
-          <button class="go">START SHIFT <small>ENTER</small></button>
-          <p class="tip">Line the landing marker up with the glowing doorstep, then release. Faster throws and unbroken streaks score more.
-          <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a pick-up: drive gently and hand over slowly.
-          <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake. Coffee cups give a turbo. A gamepad works too.</p>
+          <div class="modes">
+            <button class="go">START SHIFT <small>ENTER</small></button>
+            <button class="go alt">EXPLORE <small>E</small></button>
+          </div>
+          <p class="tip"><b>Shift:</b> the clock runs down and every delivery adds time, more for longer trips. Follow the glowing line to the selected job.
+          <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a pick-up for a cross-town run: drive gently and hand over slowly.
+          <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake.<br><b>Explore:</b> no clock. Landmarks found: ${found} of ${places}.</p>
         </div>`;
       overlay.style.pointerEvents = 'auto';
-      q(overlay, '.go').onclick = () => onStart(selected);
-      overlay.querySelectorAll('.district').forEach(b => { b.onclick = () => onSelect(b.dataset.k); });
+      q(overlay, '.go').onclick = onStart;
+      q(overlay, '.go.alt').onclick = onExplore;
     },
     showResults(r, onAgain, onMenu) {
       overlay.className = 'hud-overlay results show';
       overlay.innerHTML = `
         <div class="panel">
-          <div class="kicker">${r.district.toUpperCase()} · ${r.won ? 'SHIFT COMPLETE' : 'OUT OF TIME'}</div>
+          <div class="kicker">${r.explore ? 'EXPLORE' : 'SHIFT OVER'} · ${r.minutes.toFixed(1)} MIN ON THE ROAD</div>
           <h1 class="grade">${r.grade}</h1>
           <div class="stats">
             <div><b>${Math.round(r.score).toLocaleString()}</b><span>Score</span></div>
-            <div><b>${r.delivered}/${r.total}</b><span>Delivered</span></div>
+            <div><b>${r.delivered}</b><span>Delivered</span></div>
+            <div><b>${r.album}/${r.places}</b><span>Landmarks</span></div>
             <div><b>${r.perfect}</b><span>Perfect drops</span></div>
             <div><b>×${r.bestCombo}</b><span>Best streak</span></div>
             <div><b>${Math.round(r.topSpeed)}</b><span>Top mph</span></div>
           </div>
           ${r.best ? `<p class="sub">New personal best!</p>` : `<p class="sub">Best: ${Math.round(r.bestScore).toLocaleString()}</p>`}
           <button class="go">DRIVE AGAIN <small>ENTER</small></button>
-          <button class="ghost">CHANGE DISTRICT</button>
+          <button class="ghost">TITLE SCREEN</button>
         </div>`;
       overlay.style.pointerEvents = 'auto';
       q(overlay, '.go').onclick = onAgain;
@@ -129,7 +138,7 @@ export function createHud() {
     hideOverlay() { overlay.classList.remove('show'); overlay.style.pointerEvents = 'none'; },
 
     // north-up minimap that scrolls with the van
-    drawMap(van, targets, pickups, tram, cars = []) {
+    drawMap(van, targets, pickups, tram, cars = [], nav = null) {
       const c = map.getContext('2d');
       const w = map.width, h = map.height, k = 0.86;
       const X = (x) => w / 2 + (x - van.pos.x) * k, Z = (z) => h / 2 + (z - van.pos.z) * k;
@@ -142,6 +151,7 @@ export function createHud() {
       c.fillStyle = 'rgba(190,210,230,0.5)';
       for (const a of AVENUES) c.fillRect(X(a.x - a.hw), Z(a.z0), a.hw * 2 * k, (a.z1 - a.z0) * k);
       for (const s of STREETS) { const x0 = Math.max(s.x0, -540), x1 = Math.min(s.x1, 104); c.fillRect(X(x0), Z(s.z - s.hw), (x1 - x0) * k, s.hw * 2 * k); }
+      if (nav && nav.pts.length > 1) { c.strokeStyle = nav.target.css; c.lineWidth = 3.5; c.globalAlpha = 0.85; c.lineJoin = 'round'; c.beginPath(); nav.pts.forEach(([x, z], i) => (i ? c.lineTo(X(x), Z(z)) : c.moveTo(X(x), Z(z)))); c.stroke(); c.globalAlpha = 1; }
       c.fillStyle = 'rgba(255,235,200,0.75)'; for (const q2 of cars) c.fillRect(X(q2.x) - 2, Z(q2.z) - 2, 4, 4);
       if (tram) { c.fillStyle = '#c77dff'; c.fillRect(X(tram.x) - 3, Z(tram.z) - 9, 6, 18); }
       for (const p of pickups) if (p.active) { c.fillStyle = '#ffb347'; c.beginPath(); c.arc(X(p.x), Z(p.z), 4, 0, 7); c.fill(); }

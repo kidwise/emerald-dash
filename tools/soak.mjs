@@ -10,7 +10,8 @@ await page.goto('http://localhost:5173/?' + (process.argv[2] || ''), { waitUntil
 await page.waitForFunction('window.__ready === true && window.__app.game', { timeout: 30000 });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const district = process.argv[4] || 'slu';
-await page.evaluate((d) => window.__app.game.startShift(d), district);
+await page.evaluate(() => window.__app.game.startShift(false));
+await page.evaluate((d) => { const p = { downtown: [-90.9, 300, 1.57], center: [-150, 262, 3.14] }[d]; if (p) window.__app.game.van.reset(p[0], p[1], p[2]); }, district);
 const keys = ['KeyW', 'KeyW', 'KeyW', 'KeyA', 'KeyD', 'ShiftLeft', 'KeyS'];
 await page.evaluate((d) => { window.__soakDistrict = d; }, district);
 let held = new Set(['KeyW']); await page.keyboard.down('KeyW');

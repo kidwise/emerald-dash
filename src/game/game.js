@@ -2,10 +2,9 @@ import * as THREE from 'three';
 import { Van, groundHeight } from './van.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
-import { AVENUES, STREETS, DENNY, CURB, Z_NORTH, LAKE_Z, heightAt, avenueAt, streetAt, avenueName, CAMPUS, MARKET, MARKET_Y } from '../config.js';
+import { AVENUES, STREETS, DENNY, CURB, Z_NORTH, LAKE_Z, heightAt, avenueAt, streetAt, avenueName, CAMPUS, MARKET, routeBetween, district, DISTRICT_LABEL } from '../config.js';
 
-const SHIFT_TIME = 165, THROW_T = 0.8, GRAV = 18, RANGE = 36;
-let ORDERS = 10;
+const SHIFT_TIME = 100, MAX_JOBS = 4, THROW_T = 0.8, GRAV = 18, RANGE = 36;
 // job types: colour, HUD colour and tag
 const KINDS = {
   parcel: { col: [0.25, 2.0, 2.4], css: '#55f0ff', tag: '', base: 100 },
@@ -40,16 +39,16 @@ const POIS = [
   { name: 'International Fountain', sub: 'Seattle Center', x: -700, z: 50, r: 30 },
 ];
 
-// The three shifts you can drive.
-export const DISTRICTS = {
-  slu: { label: 'South Lake Union', sub: 'Flat streets, the streetcar and the lake', start: [1.9, 238, -Math.PI / 2] },
-  downtown: { label: 'Downtown & Pike Place', sub: 'The retail core and the hill down to the market', start: [-90.9, 300, Math.PI / 2] },
-  center: { label: 'Seattle Center', sub: 'Denny Way out to the Space Needle', start: [-150, DENNY.z - 1.9, Math.PI] },
-};
+// Places that hand you cargo for a cross-town run.
+const SOURCES = [
+  { name: 'Whole Foods Market', x: -40, z: DENNY.z + 5.3, cargo: 'GROCERIES' },
+  { name: 'Pike Place Fish', x: -436, z: 690, cargo: 'FRESH FISH' },
+];
 const CAMPUS_STOPS = [
   { x: -640, z: 124, name: 'Space Needle Base' }, { x: -590, z: 214, name: 'Glass Garden Entrance' },
-  { x: -700, z: 84, name: 'International Fountain' }, { x: -556, z: 150, name: 'Monorail Station' }, { x: -700, z: 200, name: 'Armory Food Hall' },
+  { x: -700, z: 84, name: 'International Fountain' }, { x: -556, z: 150, name: 'Monorail Station' }, { x: -686, z: 226, name: 'Armory Food Hall' },
 ];
+const START = [1.9, 238, -Math.PI / 2];
 
 function angleLerp(a, b, t) { let d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; return a + d * t; }
 
@@ -184,6 +183,48 @@ export function initGame(app) {
   reticle.traverse(o => o.layers.set(1)); reticle.visible = false;
   scene.add(reticle);
 
+  // ---------------------------------------------------------------- route line to the selected job
+  const RMAX = 700;
+  const rGeo = new THREE.BufferGeometry();
+  const rPos = new Float32Array(RMAX * 6), rDist = new Float32Array(RMAX * 2), rIdx = [];
+  for (let i = 0; i < RMAX - 1; i++) { const a = i * 2; rIdx.push(a, a + 1, a + 3, a, a + 3, a + 2); }
+  rGeo.setAttribute('position', new THREE.BufferAttribute(rPos, 3)); rGeo.setAttribute('aDist', new THREE.BufferAttribute(rDist, 1)); rGeo.setIndex(rIdx);
+  const rUni = { uTime: { value: 0 }, uColor: { value: new THREE.Color(0.2, 1.4, 1.7) } };
+  const route = new THREE.Mesh(rGeo, new THREE.ShaderMaterial({
+    uniforms: rUni, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    vertexShader: /* glsl */`attribute float aDist; varying float vD; varying float vS; void main(){ vD = aDist; vS = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */`uniform float uTime; uniform vec3 uColor; varying float vD;
+      void main(){ float chev = smoothstep(0.35, 0.5, fract(vD / 5.0 - uTime * 1.2)) * smoothstep(1.0, 0.85, fract(vD / 5.0 - uTime * 1.2)); float fade = smoothstep(4.0, 12.0, vD) * (1.0 - smoothstep(170.0, 260.0, vD)); gl_FragColor = vec4(uColor * (0.10 + 0.5 * chev) * fade, 1.0); }`,
+  }));
+  route.frustumCulled = false; route.layers.set(1); route.visible = false;
+  scene.add(route);
+  let routeT = 0;
+  const nav = { target: null, pts: [] };
+  const updateRoute = () => {
+    const live = targets.filter(t => !t.done).sort((a, b) => Math.hypot(a.x - van.pos.x, a.z - van.pos.z) - Math.hypot(b.x - van.pos.x, b.z - van.pos.z));
+    const carrying = live.find(t => t.kind === 'grocery');
+    nav.target = carrying || live[(S.navSkip || 0) % Math.max(1, live.length)] || null;
+    route.visible = !!nav.target && S.mode === 'play';
+    if (!nav.target) { nav.pts = []; return; }
+    const corners = routeBetween(van.pos.x, van.pos.z, nav.target.x, nav.target.z);
+    nav.pts = corners;
+    rUni.uColor.value.copy(nav.target.col).multiplyScalar(0.7);
+    let n = 0, dist = 0;
+    for (let i = 1; i < corners.length && n < RMAX; i++) {
+      const [ax, az] = corners[i - 1], [bx, bz] = corners[i];
+      const len = Math.hypot(bx - ax, bz - az); if (len < 0.01) continue;
+      const nx = -(bz - az) / len * 0.55, nz = (bx - ax) / len * 0.55;
+      const steps = Math.max(1, Math.ceil(len / 4));
+      for (let k = (i === 1 ? 0 : 1); k <= steps && n < RMAX; k++) {
+        const t = k / steps, x = ax + (bx - ax) * t, z = az + (bz - az) * t, y = groundHeight(x, z) + 0.07;
+        rPos.set([x - nx, y, z - nz, x + nx, y, z + nz], n * 6); rDist[n * 2] = rDist[n * 2 + 1] = dist + len * t; n++;
+      }
+      dist += len;
+    }
+    rGeo.setDrawRange(0, Math.max(0, (n - 1) * 6));
+    rGeo.attributes.position.needsUpdate = true; rGeo.attributes.aDist.needsUpdate = true;
+  };
+
   // ---------------------------------------------------------------- parcels
   const boxTex = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
@@ -219,82 +260,84 @@ export function initGame(app) {
   // ---------------------------------------------------------------- state
   const input = { throttle: 0, steer: 0, drift: false };
   const keys = new Set();
-  const S = { mode: 'title', time: SHIFT_TIME, score: 0, streak: 0, lastDelivery: -99, delivered: 0, perfect: 0, bestCombo: 0, topSpeed: 0, throwCd: 0, camHeading: van.heading, shake: 0, titleT: 0, seen: new Set(), bellCd: 0, elapsed: 0 };
+  const S = { explore: false, district: 'slu', spawnCd: 0, mode: 'title', time: SHIFT_TIME, score: 0, streak: 0, lastDelivery: -99, delivered: 0, perfect: 0, bestCombo: 0, topSpeed: 0, throwCd: 0, camHeading: van.heading, shake: 0, titleT: 0, seen: new Set(), bellCd: 0, elapsed: 0 };
   let best = 0;
   try { best = Number(localStorage.getItem('emerald-dash-best') || 0); } catch { /* storage unavailable */ }
 
-  let districtKey = 'slu';
-  try { districtKey = localStorage.getItem('emerald-dash-district') || 'slu'; } catch { /* ignore */ }
-  if (!DISTRICTS[districtKey]) districtKey = 'slu';
-  const startShift = (key) => {
-    if (typeof key === 'string' && DISTRICTS[key]) districtKey = key;
-    try { localStorage.setItem('emerald-dash-district', districtKey); } catch { /* ignore */ }
-    const D = DISTRICTS[districtKey];
+  // ---------------------------------------------------------------- dispatch: one continuous city, jobs appear near the van
+  const campusLots = CAMPUS_STOPS.map(c => ({ name: c.name, door: { x: c.x, z: c.z }, district: 'center', x0: c.x, x1: c.x, z0: c.z, z1: c.z }));
+  const allLots = () => [...world.buildings.lots.filter(l => l.name && l.door && l.type !== 'grocery' && l.district !== 'none'), ...campusLots];
+  const busy = (l) => targets.some(t => !t.done && (t.name === l.name || t.dest === l));
+  const pickLot = (cx, cz, dMin, dMax) => {
+    const d = (l) => Math.hypot(l.door.x - cx, l.door.z - cz);
+    const free = allLots().filter(l => !busy(l));
+    const inRange = free.filter(l => { const k = d(l); return k > dMin && k < dMax; });
+    if (inRange.length) return inRange[Math.floor(Math.random() * inRange.length)];
+    return free.filter(l => d(l) > dMin).sort((p, q) => d(p) - d(q))[0];
+  };
+  const spawnJob = (force) => {
+    const vx = van.pos.x, vz = van.pos.z, tr = world.streetcar.state;
+    const live = targets.filter(t => !t.done);
+    let kind = force;
+    if (!kind) {
+      const r = Math.random();
+      const hasPick = !!S.cargo || live.some(t => t.kind === 'pickup' || t.kind === 'grocery');
+      const tramOk = vz < 250 && Math.abs(vx) < 120 && !live.some(t => t.kind === 'tram');
+      const lakeOk = Math.hypot(vx - 30, vz - LAKE_Z) < 380 && !live.some(t => t.kind === 'boat');
+      kind = r < 0.15 && !hasPick && S.delivered >= 1 ? 'pickup' : r < 0.30 && !live.some(t => t.kind === 'rush') && S.delivered >= 1 ? 'rush' : r < 0.40 && tramOk ? 'tram' : r < 0.48 && lakeOk ? 'boat' : 'parcel';
+    }
+    let t;
+    if (kind === 'tram') { t = makeTarget('tram', tr.x, tr.z, TRAM_ROOF, 'Streetcar roof'); t.far = 140; hud.toast('Streetcar drop', 'Land one on the roof as it moves'); }
+    else if (kind === 'boat') { t = makeTarget('boat', 30, LAKE_Z - 9, DOCK_Y, 'Houseboat dock'); t.far = Math.hypot(vx - 30, vz - LAKE_Z); hud.toast('Dock drop', 'Throw from the waterfront, over the railing'); }
+    else if (kind === 'pickup') {
+      const src = SOURCES.reduce((b, c) => Math.hypot(c.x - vx, c.z - vz) < Math.hypot(b.x - vx, b.z - vz) ? c : b);
+      const dest = pickLot(src.x, src.z, 200, 640); if (!dest) return null;
+      t = makeTarget('pickup', src.x, src.z, heightAt(src.x, src.z), src.name); t.dest = dest; t.cargo = src.cargo;
+      t.far = Math.hypot(dest.door.x - src.x, dest.door.z - src.z);
+      hud.toast('Cross-town run', `Collect ${src.cargo.toLowerCase()} at ${src.name}`, 'place');
+    } else {
+      const lot = pickLot(vx, vz, kind === 'rush' ? 130 : 70, kind === 'rush' ? 320 : 340); if (!lot) return null;
+      t = makeTarget(kind, lot.door.x, lot.door.z, doorY(lot.door), lot.name);
+      t.far = Math.hypot(lot.door.x - vx, lot.door.z - vz);
+      if (kind === 'rush') { t.expire = Math.round(15 + t.far / 7.5); hud.toast('Rush order!', `${t.name} · ${t.expire} s · triple pay`, 'rush'); audio.play('bell'); }
+    }
+    targets.push(t);
+    return t;
+  };
+  const startShift = (explore = false) => {
     audio.start(); audio.play('start');
     clearTargets();
-    const lots = world.buildings.lots.filter(l => l.name && l.door && l.type !== 'grocery' && l.district === districtKey);
-    for (let i = lots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [lots[i], lots[j]] = [lots[j], lots[i]]; }
-    const atDoor = (kind, lot) => makeTarget(kind, lot.door.x, lot.door.z, doorY(lot.door), lot.name);
-    let note;
-    if (districtKey === 'slu') {
-      lots.slice(0, 6).forEach(l => targets.push(atDoor('parcel', l)));
-      const pick = makeTarget('pickup', -40, DENNY.z + 5.3, 0, 'Whole Foods Market'); pick.dest = lots[6]; pick.cargo = 'GROCERIES';
-      const tr = world.streetcar.state;
-      targets.push(pick, makeTarget('tram', tr.x, tr.z, TRAM_ROOF, 'Streetcar roof'), makeTarget('boat', 30, LAKE_Z - 9, DOCK_Y, 'Houseboat dock'));
-      note = 'Parcels, a grocery run, the streetcar and a dock drop';
-    } else if (districtKey === 'downtown') {
-      // favour a spread: some up in the retail core, some down the hill
-      const hill = lots.filter(l => l.x1 < -96), core = lots.filter(l => l.x1 >= -96);
-      [...hill.slice(0, 4), ...core.slice(0, 4)].forEach(l => targets.push(atDoor('parcel', l)));
-      const pick = makeTarget('pickup', -436, 690, MARKET_Y, 'Pike Place Fish'); pick.dest = core[4] || lots[8]; pick.cargo = 'FRESH FISH';
-      targets.push(pick);
-      note = 'Parcels up and down the hill, and fresh fish from the market';
-    } else {
-      lots.slice(0, 5).forEach(l => targets.push(atDoor('parcel', l)));
-      const stops = [...CAMPUS_STOPS].sort(() => Math.random() - 0.5).slice(0, 4);
-      for (const c of stops) targets.push(makeTarget('parcel', c.x, c.z, CURB, c.name));
-      note = 'Denny Way, the monorail and the Space Needle campus';
-    }
-    const rushPool = lots.filter(l => !targets.some(t => t.name === l.name) && l !== (targets.find(t => t.dest) || {}).dest);
-    van.reset(D.start[0], D.start[1], D.start[2]);
-    Object.assign(S, { mode: 'play', time: SHIFT_TIME, score: 0, streak: 0, lastDelivery: -99, delivered: 0, resolved: 0, perfect: 0, bestCombo: 0, topSpeed: 0, throwCd: 0,
-      camHeading: van.heading, elapsed: 0, rush: null, rushLot: rushPool[0] || lots[0], rushAt: 18 + Math.random() * 12, cargo: null, airBest: 0 });
-    ORDERS = targets.length + 1;
+    if (S.mode !== 'end' || !S.keepPos) van.reset(START[0], START[1], START[2]);
+    Object.assign(S, { mode: 'play', explore: !!explore, time: SHIFT_TIME, score: 0, streak: 0, lastDelivery: -99, delivered: 0, resolved: 0, perfect: 0, bestCombo: 0, topSpeed: 0, throwCd: 0,
+      camHeading: van.heading, elapsed: 0, cargo: null, airBest: 0, spawnCd: 0, district: district(van.pos.x, van.pos.z), seen: new Set() });
     for (const p of pickups) { p.active = true; p.g.visible = true; }
     for (const p of parcels) { p.active = false; p.m.visible = false; p.ride = false; }
     hud.hideOverlay(); hud.setPlaying(true); hud.setScore(0, 0); hud.setCargo(null);
-    hud.toast(D.label, note);
+    for (let i = 0; i < 3; i++) spawnJob('parcel');
+    hud.toast(explore ? 'Explore' : 'Shift started', explore ? 'No clock. Find the landmarks, take jobs if you like.' : 'Every delivery adds time. Jobs keep coming.');
   };
-  const spawnRush = () => {
-    const t = makeTarget('rush', S.rushLot.door.x, S.rushLot.door.z, doorY(S.rushLot.door), S.rushLot.name);
-    t.expire = 36; targets.push(t); S.rush = t;
-    hud.toast('Rush order!', `${t.name} · 36 s · triple pay`, 'rush'); audio.play('bell');
-  };
-  const resolve = () => {
-    S.resolved++;
-    if (!S.rush && S.resolved >= ORDERS - 1 && S.mode === 'play') spawnRush();
-    if (S.resolved >= ORDERS) setTimeout(() => S.mode === 'play' && endShift(true), 900);
-  };
+  const resolve = () => { S.resolved++; S.spawnCd = 1.0; };
   const endShift = (won) => {
     S.mode = 'end';
-    if (won) S.score += Math.ceil(S.time) * 20;
     const sc = S.score;
-    const grade = sc >= 6000 ? 'S' : sc >= 4500 ? 'A' : sc >= 3000 ? 'B' : sc >= 1500 ? 'C' : 'D';
-    const bkey = 'emerald-dash-best-' + districtKey;
+    const grade = sc >= 9000 ? 'S' : sc >= 6000 ? 'A' : sc >= 3500 ? 'B' : sc >= 1500 ? 'C' : 'D';
+    const bkey = 'emerald-dash-best-city';
     let best = 0; try { best = Number(localStorage.getItem(bkey) || 0); } catch { /* ignore */ }
     const isBest = sc > best;
     if (isBest) { best = sc; try { localStorage.setItem(bkey, String(Math.round(best))); } catch { /* ignore */ } }
     audio.play(won ? 'win' : 'lose');
     hud.setPlaying(false);
-    hud.showResults({ won, grade, score: sc, delivered: S.delivered, total: ORDERS, district: DISTRICTS[districtKey].label, perfect: S.perfect, bestCombo: S.bestCombo, topSpeed: S.topSpeed, best: isBest, bestScore: best }, () => startShift(), () => { S.mode = 'title'; S.titleT = 0; showTitle(); });
+    hud.showResults({ won, explore: S.explore, grade, score: sc, delivered: S.delivered, perfect: S.perfect, bestCombo: S.bestCombo, topSpeed: S.topSpeed, best: isBest, bestScore: best, album: album.size, places: POIS.length, minutes: S.elapsed / 60 }, () => startShift(S.explore), () => { S.mode = 'title'; S.titleT = 0; showTitle(); });
   };
 
   addEventListener('keydown', (e) => {
     if (e.repeat) return;
     keys.add(e.code);
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-    if (e.code === 'Enter' && S.mode !== 'play') startShift();
-    if (S.mode !== 'play' && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) { districtKey = Object.keys(DISTRICTS)[Number(e.code.slice(5)) - 1]; if (S.mode === 'title') showTitle(); }
+    if (e.code === 'Enter' && S.mode !== 'play') startShift(false);
+    if (e.code === 'KeyE' && S.mode !== 'play') startShift(true);
+    if (e.code === 'Escape' && S.mode === 'play') endShift(false);
+    if (e.code === 'Tab' && S.mode === 'play') { e.preventDefault(); S.navSkip = (S.navSkip || 0) + 1; }
     if (e.code === 'Space' && S.mode === 'play') throwParcel();
     if (e.code === 'KeyR' && S.mode === 'play') { const a = nearestRoadPoint(van.pos.x, van.pos.z); van.reset(a.x, a.z, a.h); }
     if (e.code === 'KeyM') hud.toast(audio.toggleMute() ? 'Sound off' : 'Sound on');
@@ -381,7 +424,8 @@ export function initGame(app) {
         S.cargo = null; hud.setCargo(null);
       }
       const pts = Math.round(base * (perfect ? 2 : 1) * (1 + 0.5 * (S.streak - 1)) / 5) * 5;
-      S.score += pts; S.delivered++; S.time += bonus; if (perfect) S.perfect++;
+      bonus += Math.round((hit.far || 0) / 22);
+      S.score += pts; S.delivered++; S.time = Math.min(240, S.time + bonus); if (perfect) S.perfect++;
       hud.pop(sp.x, sp.y, `${perfect ? 'PERFECT ' : ''}+${pts}`, perfect ? 'perfect' : '');
       hud.setScore(S.score, S.streak); hud.bumpScore();
       hud.toast(hit.name, `${note} · +${bonus} s`);
@@ -450,11 +494,13 @@ export function initGame(app) {
   // ---------------------------------------------------------------- frame update
   const headWorld = new THREE.Vector3(), tmp = new THREE.Vector3();
   let frameN = 0;
-  const showTitle = () => hud.showTitle(startShift, DISTRICTS, districtKey, (k) => { districtKey = k; showTitle(); });
+  const album = new Set();
+  try { for (const n of JSON.parse(localStorage.getItem('emerald-dash-album') || '[]')) album.add(n); } catch { /* ignore */ }
+  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length);
   showTitle();
   hud.setClock(SHIFT_TIME, []);
   van.reset(1.9, 238, -Math.PI / 2); van.sync();
-  if (params.get('autostart')) startShift(params.get('district') || districtKey);
+  if (params.get('autostart')) startShift(params.get('autostart') === 'explore');
 
   app.update = (dt) => {
     frameN++;
@@ -534,15 +580,17 @@ export function initGame(app) {
     updateParticles(dt);
 
     if (playing) {
-      S.elapsed += dt; S.time -= dt; S.throwCd -= dt;
+      S.elapsed += dt; if (!S.explore) S.time -= dt; S.throwCd -= dt;
       S.topSpeed = Math.max(S.topSpeed, van.speed * 2.237);
-      if (S.time <= 10 && Math.floor(S.time) !== Math.floor(S.time + dt)) audio.play('tick');
-      if (S.time <= 0) endShift(false);
+      if (!S.explore && S.time <= 10 && Math.floor(S.time) !== Math.floor(S.time + dt)) audio.play('tick');
+      if (!S.explore && S.time <= 0) endShift(false);
+      const dk = district(van.pos.x, van.pos.z);
+      if (dk !== S.district && dk !== 'none') { S.district = dk; hud.banner(DISTRICT_LABEL[dk]); }
       if (S.streak > 0 && S.elapsed - S.lastDelivery > 16) { S.streak = 0; hud.setScore(S.score, 0); }
 
       for (const p of POIS) {
         if (S.seen.has(p.name)) continue;
-        if (Math.hypot(van.pos.x - p.x, van.pos.z - p.z) < p.r) { S.seen.add(p.name); S.score += 150; hud.toast(p.name, `${p.sub} · +150`, 'place'); hud.setScore(S.score, S.streak); audio.play('place'); }
+        if (Math.hypot(van.pos.x - p.x, van.pos.z - p.z) < p.r) { S.seen.add(p.name); if (!album.has(p.name)) { album.add(p.name); try { localStorage.setItem('emerald-dash-album', JSON.stringify([...album])); } catch { /* ignore */ } } S.score += 150; hud.toast(p.name, `${p.sub} · +150`, 'place'); hud.setScore(S.score, S.streak); audio.play('place'); }
       }
       for (const p of pickups) {
         if (!p.active) { p.respawn -= dt; if (p.respawn <= 0) { p.active = true; p.g.visible = true; } continue; }
@@ -561,12 +609,15 @@ export function initGame(app) {
     // jobs that change over time: the grocery pick-up, the rush order, the moving streetcar
     if (playing) {
       const tr = world.streetcar.state;
-      if (!S.rush && S.elapsed > S.rushAt) spawnRush();
+      // retire finished jobs and keep the board topped up
+      for (let i = targets.length - 1; i >= 0; i--) if (targets[i].done && targets[i].fade <= 0) { scene.remove(targets[i].g); targets.splice(i, 1); }
+      S.spawnCd -= dt;
+      if (S.spawnCd <= 0 && targets.filter(t => !t.done).length < MAX_JOBS) { spawnJob(); S.spawnCd = 2.5; }
       for (const t of targets) {
         if (t.done) continue;
         if (t.kind === 'tram') { t.x = tr.x; t.z = tr.z; t.vz = tr.dir * tr.v; t.g.position.set(t.x, TRAM_ROOF, t.z); }
         if (t.kind === 'pickup' && Math.hypot(van.pos.x - t.x, van.pos.z - t.z) < 4.6) {
-          const d = doorOf(t.dest); t.x = d.x; t.z = d.z; t.y = doorY(d); t.name = t.dest.name; t.g.position.set(t.x, t.y, t.z);
+          const d = doorOf(t.dest); t.x = d.x; t.z = d.z; t.y = doorY(d); t.name = t.dest.name; t.dest = null; t.g.position.set(t.x, t.y, t.z);
           setKind(t, 'grocery'); t.tag = t.cargo; S.cargo = { cond: 100, label: t.cargo }; hud.setCargo(100, t.cargo);
           hud.toast(t.cargo === 'FRESH FISH' ? 'Fish loaded' : 'Groceries loaded', `For ${t.name} · drive gently, hand over below 20 mph`, 'place'); audio.play('place');
         }
@@ -680,14 +731,16 @@ export function initGame(app) {
     app.reflection.planeY = heightAt(van.pos.x, van.pos.z); ground.uniforms.uPlaneY.value = app.reflection.planeY;
     updateCube();
 
+    rUni.uTime.value = app.time; routeT -= dt;
+    if (routeT <= 0) { routeT = 0.35; if (playing) updateRoute(); else route.visible = false; }
+
     // HUD
     if (playing) {
       const chips = targets.map(t => ({ css: t.css, state: t.failed ? 'fail' : t.done ? 'done' : 'todo' }));
-      if (!S.rush) chips.push({ css: KINDS.rush.css, state: 'pending' });
-      hud.setClock(S.time, chips);
+      hud.setClock(S.time, chips, S.explore ? `LANDMARKS ${album.size}/${POIS.length}` : null, S.delivered);
       hud.setSpeed(van.speed * 2.237, Math.max(0, van.boost) / 3.6);
       if (frameN % 6 === 0) hud.setStreet(streetName());
-      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars);
+      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars, nav);
       const W = innerWidth, H = innerHeight, m = 46;
       const dv = (t) => (t.x - van.pos.x) ** 2 + (t.z - van.pos.z) ** 2;
       hud.setPins(targets.filter(t => !t.done).sort((a, b) => dv(a) - dv(b)).slice(0, 3).map(t => {
@@ -704,7 +757,7 @@ export function initGame(app) {
     audio.update({ speed: van.speed, throttle: input.throttle, slip: van.slip, boost: van.boost > 0, active: playing });
   };
 
-  app.game = { van, state: S, input, startShift, throwParcel, targets, aim, cubeRT, DISTRICTS };
+  app.game = { van, state: S, input, startShift, throwParcel, targets, aim, cubeRT, spawnJob };
 }
 
 let _halo = null;

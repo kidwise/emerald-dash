@@ -186,3 +186,40 @@ export function cityCells() {
   }
   return cells;
 }
+
+// ---------------------------------------------------------------- routing along the street network
+const NODES = [];
+for (const a of AVENUES) for (const st of STREETS) if (isNode(a, st)) NODES.push({ x: a.x, z: st.z, a, st, edges: [] });
+for (const a of AVENUES) { const on = NODES.filter(n => n.a === a).sort((p, q) => p.z - q.z); for (let i = 1; i < on.length; i++) { const d = on[i].z - on[i - 1].z; on[i].edges.push([on[i - 1], d]); on[i - 1].edges.push([on[i], d]); } }
+for (const st of STREETS) { const on = NODES.filter(n => n.st === st).sort((p, q) => p.x - q.x); for (let i = 1; i < on.length; i++) { const d = on[i].x - on[i - 1].x; on[i].edges.push([on[i - 1], d]); on[i - 1].edges.push([on[i], d]); } }
+
+// nearest point on any road, and the junctions either side of it
+function snap(x, z) {
+  let best = null, bd = 1e9;
+  for (const a of AVENUES) { const zz = Math.max(a.z0 + 2, Math.min(a.z1 - 2, z)); const d = Math.hypot(x - a.x, z - zz); if (d < bd) { bd = d; best = { x: a.x, z: zz, a }; } }
+  for (const st of STREETS) { const xx = Math.max(Math.max(st.x0, -536) + 2, Math.min(Math.min(st.x1, 100) - 2, x)); const d = Math.hypot(x - xx, z - st.z); if (d < bd) { bd = d; best = { x: xx, z: st.z, st }; } }
+  best.near = NODES.filter(n => (best.a ? n.a === best.a : n.st === best.st)).map(n => [n, Math.abs(best.a ? n.z - best.z : n.x - best.x)]).sort((p, q) => p[1] - q[1]).slice(0, 2);
+  return best;
+}
+// shortest drive from (ax, az) to (bx, bz): a list of [x, z] corner points
+export function routeBetween(ax, az, bx, bz) {
+  const A = snap(ax, az), B = snap(bx, bz);
+  const out = [[ax, az], [A.x, A.z]];
+  const sameRoad = (A.a && A.a === B.a) || (A.st && A.st === B.st);
+  if (!sameRoad || Math.hypot(A.x - B.x, A.z - B.z) > 400) {
+    const dist = new Map(), prev = new Map(), open = new Set();
+    for (const [n, d] of A.near) { dist.set(n, d); open.add(n); }
+    while (open.size) {
+      let u = null; for (const n of open) if (!u || dist.get(n) < dist.get(u)) u = n;
+      open.delete(u);
+      for (const [v, w] of u.edges) { const nd = dist.get(u) + w; if (nd < (dist.get(v) ?? 1e9)) { dist.set(v, nd); prev.set(v, u); open.add(v); } }
+    }
+    let end = null, bestD = 1e9;
+    for (const [n, d] of B.near) { const t = (dist.get(n) ?? 1e9) + d; if (t < bestD) { bestD = t; end = n; } }
+    const chain = []; for (let n = end; n; n = prev.get(n)) chain.unshift(n);
+    for (const n of chain) out.push([n.x, n.z]);
+  }
+  out.push([B.x, B.z], [bx, bz]);
+  return out;
+}
+export const DISTRICT_LABEL = { slu: 'South Lake Union', downtown: 'Downtown', center: 'Seattle Center', none: '' };
