@@ -36,7 +36,7 @@ for (const s of src) {
   await sleep(200);
   await ev(() => window.__app.game.spawnJob('pickup'));
   await ev((q) => window.__app.game.van.reset(q[1], q[2] - 14, Math.PI / 2), s);
-  await page.keyboard.down('KeyW'); await sleep(1500); await page.keyboard.up('KeyW');
+  await page.keyboard.down('KeyW'); await sleep(2300); await page.keyboard.up('KeyW');
   if (s[3] === 'FRESH FISH') {
     await ev((q) => window.__app.game.van.reset(q[1], q[2], Math.PI / 2), s);
     await page.waitForFunction('!!window.__app.game.state.toss', { timeout: 6000 }).catch(() => console.log('no toss started'));
