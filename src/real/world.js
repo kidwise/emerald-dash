@@ -702,10 +702,14 @@ export async function initRealWorld(app, mapName = 'slu') {
     }
   }
 
+  // open ground: clear of every street (by `need` metres beyond the kerb) and of every building
+  const offRoad = (x, z, need) => { const nr = nearRoad(x, z, 2); return (!nr || nr.d - nr.rd.hw > need) && !inBuilding(x, z) && !inWater(x, z); };
+  const freeSpot = (cx, cz, r0, r1, need) => { for (let rad = r0; rad <= r1; rad += 3) for (let k = 0; k < 12; k++) { const a = k * 0.5236 + rad, x = cx + Math.cos(a) * rad, z = cz + Math.sin(a) * rad; if (offRoad(x, z, need)) return [x, z]; if (rad === 0) break; } return null; };
+
   // ================================================================ the holiday tree in Westlake Park
   {
     const wp = data.parks.find(q => /Westlake Park/.test(q.n));
-    const at = wp ? centreOf(wp) : [71, 799];
+    const mid = wp ? centreOf(wp) : [71, 799], at = freeSpot(mid[0], mid[1], 0, 45, 6.5) || mid;      // streets cut through the park: keep the tree off them
     treeAt = at;
     const retail = createRetailCore(obstacles, [], { tree: at });
     scene.add(retail.group); glow.push(...retail.glow);
@@ -722,7 +726,7 @@ export async function initRealWorld(app, mapName = 'slu') {
       return null;
     };
     const mLot = lots.find(l => l.name === 'MOHAI'), ken = data.buildings.find(b => /Kenmore Air/.test(b.n));
-    const scenes = createScenes({ H, r, needle: needleAt, mohai: mLot && { x: mLot.door.x, z: mLot.door.z, nx: mLot.door.nx, nz: mLot.door.nz }, waterSpot,
+    const scenes = createScenes({ H, r, clear: offRoad, free: freeSpot, needle: needleAt, mohai: mLot && { x: mLot.door.x, z: mLot.door.z, nx: mLot.door.nx, nz: mLot.door.nz }, waterSpot,
       waterLevel: (x, z) => { const n = lakes.findIndex(ring => inPoly(x, z, ring)); return n >= 0 ? waterY[n] : 0; }, seaplane: ken && centreOf(ken), tree: treeAt });
     scene.add(scenes.group); glow.push(...scenes.glow); obstacles.push(...scenes.obstacles); updaters.push(() => scenes.update(app.time));
   }
@@ -836,6 +840,12 @@ export async function initRealWorld(app, mapName = 'slu') {
   ]) if (x > B.x0 - 60 && x < B.x1 + 60 && z > B.z0 - 60 && z < B.z1 + 60) pois.push({ name, sub, x, z, r: rad });
   if (mono) { const q = mono[Math.floor(mono.length / 2)]; pois.push({ name: 'Seattle Center Monorail', sub: 'Built for the 1962 World’s Fair', x: q[0], z: q[1], r: 45 }); }
   for (const [re, sub] of [[/^Denny Park$/, 'Seattle’s oldest park'], [/Victor Steinbrueck Park/, 'Overlooking Elliott Bay, beside the market']]) { const pk = data.parks.find(q => re.test(q.n)); if (pk) { const [x, z] = centre(pk); pois.push({ name: pk.n, sub, x, z, r: 60 }); } }
+  // every postcard stop sits in the kerb lane of the nearest street, so it can always be driven to
+  for (const q of heroStops) {
+    const nr = nearRoad(q.x, q.z, 4); if (!nr) continue;
+    const dx = q.look[0] - nr.x, dz = q.look[2] - nr.z, d = Math.hypot(dx, dz) || 1, k = Math.max(0, nr.rd.hw - 2.4);
+    q.x = nr.x + dx / d * k; q.z = nr.z + dz / d * k;
+  }
   // a landmark with a postcard stop is listed once, as the stop
   for (let i = pois.length - 1; i >= 0; i--) if (heroStops.some(q => q.name === pois[i].name)) pois.splice(i, 1);
   // every landmark must be discoverable from the nearest street

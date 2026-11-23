@@ -672,7 +672,9 @@ export function initGame(app) {
       S.stillT = van.speed < 0.6 && !S.toss ? S.stillT + dt : 0;
       const collecting = targets.some(t => !t.done && t.kind === 'pickup' && Math.hypot(t.x - van.pos.x, t.z - van.pos.z) < 7);
       if (!S.post && S.stillT > 0.7 && !collecting) {
-        const st = STOPS.find(q => Math.hypot(q.x - van.pos.x, q.z - van.pos.z) < 6.5);
+        // the nearest stop wins; where two face each other across a street, one you have not seen yet goes first
+        const dq = (q) => Math.hypot(q.x - van.pos.x, q.z - van.pos.z);
+        const st = STOPS.filter(q => dq(q) < 6.5 && q !== S.lastStop).sort((p1, p2) => (S.seen.has(p1.name) - S.seen.has(p2.name)) || dq(p1) - dq(p2))[0];
         if (st && st !== S.lastStop) {
           S.post = { stop: st, t: 0 }; S.lastStop = st; hud.postcard(st.name, st.sub); audio.play('place');
           if (!S.seen.has(st.name)) { S.seen.add(st.name); S.score += 200; hud.setScore(S.score, S.streak); }

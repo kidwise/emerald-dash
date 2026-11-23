@@ -17,19 +17,22 @@ function lit(color, k = 0.7, rough = 0.7) {
 }
 const glowMat = (r, g, b) => new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b) });
 
-export function createScenes({ H, r, needle, mohai, waterSpot, waterLevel, seaplane, tree }) {
+export function createScenes({ H, r, clear, free, needle, mohai, waterSpot, waterLevel, seaplane, tree }) {
   const group = new THREE.Group();
   const obstacles = [], updaters = [], people = [];
   const gp = [], gc = [], gs = [], gph = [];
   const lamp = (x, y, z, c = [1.0, 0.72, 0.42], s = 1.4) => { gp.push(x, y, z); gc.push(...c); gs.push(s); gph.push(r()); };
   const COAT = [0x3a4a66, 0x5a5048, 0x6a3438, 0x3f5a4a, 0x8a8278, 0x4a4f5a, 0xa58a52, 0x2f3a52, 0x7a5a8a, 0xb0563a, 0xc9c2b0, 0x1f5f7a];
-  const person = (x, z, face) => people.push({ x, z, face: face ?? r() * 6.28, s: 0.93 + r() * 0.12, c: COAT[Math.floor(r() * COAT.length)] });
+  // nothing in these scenes may stand in a street
+  const person = (x, z, face) => clear(x, z, 0.8) && people.push({ x, z, face: face ?? r() * 6.28, s: 0.93 + r() * 0.12, c: COAT[Math.floor(r() * COAT.length)] });
   const crowd = (cx, cz, n, rad, inner = 0) => { for (let i = 0; i < n; i++) { const a = r() * 6.28, d = inner + Math.sqrt(r()) * (rad - inner); person(cx + Math.cos(a) * d, cz + Math.sin(a) * d); } };
   const geos = { metal: [], wood: [], white: [], red: [], cream: [], panel: [], blue: [] };
 
-  const bench = (x, z, a) => { const y = H(x, z); for (const g of [box(1.9, 0.08, 0.5, 0, 0.45, 0), box(1.9, 0.5, 0.06, 0, 0.75, -0.25), box(0.08, 0.45, 0.45, -0.8, 0.22, 0), box(0.08, 0.45, 0.45, 0.8, 0.22, 0)]) geos.wood.push(g.rotateY(a).translate(x, y, z)); };
+  const bench = (x, z, a) => { if (!clear(x, z, 1.6)) return; const y = H(x, z); for (const g of [box(1.9, 0.08, 0.5, 0, 0.45, 0), box(1.9, 0.5, 0.06, 0, 0.75, -0.25), box(0.08, 0.45, 0.45, -0.8, 0.22, 0), box(0.08, 0.45, 0.45, 0.8, 0.22, 0)]) geos.wood.push(g.rotateY(a).translate(x, y, z)); };
   // a street-food cart or kiosk: body, serving window, striped awning, a lamp
-  const kiosk = (x, z, a, text, color, w = 3.2) => {
+  const kiosk = (x0, z0, a, text, color, w = 3.2) => {
+    const at = clear(x0, z0, w * 0.6 + 1.5) ? [x0, z0] : free(x0, z0, 3, 30, w * 0.6 + 1.5); if (!at) return;
+    const [x, z] = at;
     const y = H(x, z), put = (g) => g.rotateY(a).translate(x, y, z);
     geos.metal.push(put(box(w, 2.3, 2.0, 0, 1.15, 0)));
     geos.panel.push(put(box(w - 0.5, 0.9, 0.06, 0, 1.55, 1.02)));
@@ -47,7 +50,7 @@ export function createScenes({ H, r, needle, mohai, waterSpot, waterLevel, seapl
     ring.position.set(nx, y + 0.13, nz); ring.layers.set(1); group.add(ring);
     const band = new THREE.Mesh(new THREE.RingGeometry(23.4, 24, 64, 1).rotateX(-Math.PI / 2), glowMat(2.2, 1.6, 0.9));
     band.position.set(nx, y + 0.16, nz); band.layers.set(1); group.add(band);
-    for (let i = 0; i < 16; i++) { const a = (i / 16) * 6.283, x = nx + Math.cos(a) * 33, z = nz + Math.sin(a) * 33; geos.metal.push(new THREE.CylinderGeometry(0.14, 0.16, 0.95, 8).translate(x, y + 0.47, z)); lamp(x, y + 1.05, z, [1.0, 0.8, 0.5], 0.7); obstacles.push({ x, z, r: 0.25 }); }
+    for (let i = 0; i < 16; i++) { const a = (i / 16) * 6.283, x = nx + Math.cos(a) * 33, z = nz + Math.sin(a) * 33; if (!clear(x, z, 0.6)) continue; geos.metal.push(new THREE.CylinderGeometry(0.14, 0.16, 0.95, 8).translate(x, y + 0.47, z)); lamp(x, y + 1.05, z, [1.0, 0.8, 0.5], 0.7); obstacles.push({ x, z, r: 0.25 }); }
     // festoon of bulbs strung between poles around the base
     for (let i = 0; i < 10; i++) {
       const a0 = (i / 10) * 6.283, a1 = ((i + 1) / 10) * 6.283;
@@ -102,7 +105,9 @@ export function createScenes({ H, r, needle, mohai, waterSpot, waterLevel, seapl
 
   // ================================================================ Westlake Park: the holiday carousel, food trucks, a crowd
   if (tree) {
-    const [tx, tz] = tree, cx = tx + 13, cz = tz - 9, y = H(cx, cz);
+    const [tx, tz] = tree, cTry = free(tx + 13, tz - 9, 0, 45, 8), cAt = cTry && Math.hypot(cTry[0] - tx, cTry[1] - tz) > 12 ? cTry : null;
+    const cx = cAt ? cAt[0] : tx, cz = cAt ? cAt[1] : tz, y = H(cx, cz);
+    if (cAt) {
     const still = [new THREE.CylinderGeometry(5.6, 5.8, 0.35, 28).translate(cx, y + 0.18, cz), new THREE.CylinderGeometry(0.5, 0.5, 4.2, 12).translate(cx, y + 2.4, cz)];
     geos.wood.push(...still);
     const canopy = new THREE.ConeGeometry(6.3, 2.4, 20, 1, true).toNonIndexed(), cp = canopy.attributes.position, col = [];
@@ -123,9 +128,10 @@ export function createScenes({ H, r, needle, mohai, waterSpot, waterLevel, seapl
     }
     updaters.push((t) => { spin.rotation.y = t * 0.45; horses.forEach((h, i) => { h.position.y = 1.3 + Math.sin(t * 1.8 + i * 1.3) * 0.28; }); });
     obstacles.push({ x: cx, z: cz, r: 6 });
+    }
     kiosk(tx - 14, tz + 8, 0.9, 'CRÊPES', '#ffb7e0', 5.2); kiosk(tx - 9, tz - 13, 2.2, 'TAMALES', '#59ff8f', 5.2); kiosk(tx + 6, tz + 14, -0.4, 'CIDER', '#ffb056');
     for (let i = 0; i < 6; i++) { const a = (i / 6) * 6.283; bench(tx + Math.cos(a) * 8.5, tz + Math.sin(a) * 8.5, -a + Math.PI / 2); }
-    crowd(tx, tz, 34, 17, 5.5); crowd(cx, cz, 12, 9.5, 6.5);
+    crowd(tx, tz, 34, 17, 5.5); if (cAt) crowd(cx, cz, 12, 9.5, 6.5);
   }
 
   // ================================================================ build the shared meshes

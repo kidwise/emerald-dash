@@ -99,6 +99,7 @@ node tools/realmap.mjs                             # drive, walls, traffic, a de
 node tools/realheroes.mjs                          # photograph each landmark in place
 node tools/realhill.mjs                            # drive down the steepest street
 node tools/market.mjs                              # Pike Place: slow zone, postcards, shop cargo
+node tools/stops.mjs                               # drive up to every landmark stop and check its postcard opens
 node tools/setpieces.mjs                           # the monorail race and the Space Needle ride
 node tools/weather.mjs                             # the clear-evening toggle
 node tools/soak.mjs "" 60                          # 60 s of random driving and crashes
