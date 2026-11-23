@@ -10,7 +10,8 @@ Streets, building footprints, hills and shorelines are baked from OpenStreetMap 
 South Lake Union, Belltown, the downtown retail core, Pike Place and Seattle Center (about 2 km by 2.6 km).
 Hand-built landmarks stand at their real positions: Pike Place Market (arcade, stalls and shopfronts), the Public
 Market sign, the Space Needle and glass garden, the monorail, the streetcar, the Westlake Park holiday tree, MOHAI
-and the Great Wheel. Traffic obeys the signals and pedestrians walk the kerbs.
+and the Great Wheel. Traffic obeys the signals, pedestrians walk the kerbs, cars are parked along the wider
+streets and neon signs hang from the shopfronts.
 
 Jobs are dispatched near wherever you drive; choose Explore for no clock. Stop beside a landmark for a close look.
 Pike Place Market is walking pace, and its shops hand over cargo with their own rules: catch the thrown fish,

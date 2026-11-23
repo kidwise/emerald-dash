@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FacadeGeo, STYLE, createFacadeMaterial } from '../world/facade.js';
-import { buildLamps, buildTrees, createGlowPoints, chunks } from '../world/props.js';
+import { buildLamps, buildTrees, createGlowPoints, chunks, byChunk, registerChunk, shadowTex } from '../world/props.js';
 import { createRain } from '../world/rain.js';
 import { createLake } from '../world/landmarks.js';
 import { rng } from '../world/rng.js';
@@ -51,6 +51,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     return u > v ? a + (b - a) * u + (c - b) * v : a + (c - d) * u + (d - a) * v;    // the same two triangles the terrain mesh draws
   };
   const updaters = [], glow = [], obstacles = [], colliders = [];
+  let parkedCount = 0, signCount = 0;
 
   // ---- hand-built landmarks take their real places; the map's own buildings make way for them
   const centreOf = (b) => { let x = 0, z = 0; for (const q of b.p) { x += q[0]; z += q[1]; } return [x / b.p.length, z / b.p.length]; };
@@ -335,6 +336,82 @@ export async function initRealWorld(app, mapName = 'slu') {
     scene.add(rail.group); updaters.push((dt) => rail.update(dt));
   }
 
+  // ================================================================ parked cars along the wider streets
+  // (never on the streetcar tracks)
+  const nearTram = (x, z) => (data.tram || []).some((line) => { for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], dx = b[0] - a[0], dz = b[1] - a[1], t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1))); if (Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t) < 3.4) return true; } return false; });
+  {
+    const spots = [];
+    roads.forEach((rd, ri) => {
+      if (rd.kind.endsWith('_link') || rd.kind === 'pedestrian' || rd.bridge || rd.len < 50) return;
+      // room for a parking lane beside moving traffic: wide two-way streets, or any one-way street
+      if (!(rd.oneway ? rd.hw >= 4.5 : rd.hw >= 6)) return;
+      for (const side of [-1, 1]) for (let d = 16; d < rd.len - 16; d += 6.1) {
+        // cars come in runs with gaps between them
+        const busy = Math.abs(Math.sin((Math.floor(d / 42) + ri * 7.3 + side) * 12.9898) * 43758.5453) % 1 < 0.5;
+        if (r() > (busy ? 0.58 : 0.05)) continue;
+        let i = 1; while (i < rd.pts.length - 1 && rd.v[i] < d) i++;
+        const a = rd.pts[i - 1], b = rd.pts[i], t = (d - rd.v[i - 1]) / (rd.v[i] - rd.v[i - 1] || 1);
+        if (rd.dJ[i - 1] + (rd.dJ[i] - rd.dJ[i - 1]) * t < 13) continue;
+        const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1, fx = dx / l, fz = dz / l, nx = -fz, nz = fx;
+        const off = rd.hw - 1.25, x = a[0] + dx * t + nx * side * off, z = a[1] + dz * t + nz * side * off;
+        if (x < B.x0 + 10 || x > B.x1 - 10 || z < B.z0 + 10 || z > B.z1 - 10 || inSet(x, z, 8) || inWater(x, z) || nearTram(x, z)) continue;
+        const h = Math.atan2(fz, fx) + (side < 0 && !rd.oneway ? Math.PI : 0), cx = Math.cos(h), cz = Math.sin(h);
+        spots.push({ x, z, y: H(x, z) + 0.1, h, pitch: Math.atan((H(x + cx * 1.4, z + cz * 1.4) - H(x - cx * 1.4, z - cz * 1.4)) / 2.8), kind: Math.floor(r() * CAR_KINDS) % CAR_KINDS, color: CAR_COLORS[Math.floor(r() * CAR_COLORS.length)] });
+        // a low box the van bumps into; the camera ignores it
+        const c = [[2.35, 0.98], [2.35, -0.98], [-2.35, -0.98], [-2.35, 0.98]].map(([u, w]) => [x + cx * u - cz * w, z + cz * u + cx * w]);
+        for (let k = 0; k < 4; k++) segs.push({ ax: c[k][0], az: c[k][1], bx: c[(k + 1) % 4][0], bz: c[(k + 1) % 4][1], low: true });
+      }
+    });
+    const PM = new THREE.Matrix4(), PQ = new THREE.Quaternion(), PQ2 = new THREE.Quaternion(), PV = new THREE.Vector3(), PS = new THREE.Vector3(1, 1, 1), PC = new THREE.Color();
+    const shMat = new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, color: 0x000000, opacity: 0.85 }), shGeo = new THREE.PlaneGeometry(5.6, 2.9).rotateX(-Math.PI / 2);
+    const mat = (q, lift) => { PQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -q.h).multiply(PQ2.setFromAxisAngle(new THREE.Vector3(0, 0, 1), q.pitch)); return PM.compose(PV.set(q.x, q.y + lift, q.z), PQ, PS); };
+    for (const list of byChunk(spots)) {
+      const objs = [];
+      for (let k = 0; k < CAR_KINDS; k++) {
+        const sub = list.filter(q => q.kind === k); if (!sub.length) continue;
+        const set = makeCarSet(k, sub.length, false);
+        sub.forEach((q, n) => { set.setMatrixAt(n, mat(q, 0)); set.body.setColorAt(n, PC.setHex(q.color)); });
+        scene.add(...set.all); objs.push(...set.all);
+      }
+      const sh = new THREE.InstancedMesh(shGeo, shMat, list.length);
+      list.forEach((q, n) => sh.setMatrixAt(n, mat(q, 0.03)));
+      sh.layers.set(1); sh.renderOrder = 2; scene.add(sh); objs.push(sh);
+      registerChunk(list, objs);
+    }
+    parkedCount = spots.length;
+  }
+
+  // ================================================================ neon blade signs on the shopfronts
+  {
+    const WORDS = [['COFFEE', '#ff9a3c'], ['PHO', '#ff3b5c'], ['BAR', '#35d6ff'], ['RAMEN', '#ff4d2e'], ['BOOKS', '#ffd35a'], ['TACOS', '#59ff8f'], ['BAKERY', '#ffb7e0'], ['TERIYAKI', '#ff5a36'],
+      ['POKE', '#4fe3ff'], ['PIZZA', '#ff6a3d'], ['VINYL', '#c58bff'], ['ESPRESSO', '#ffb056'], ['THAI', '#7dffb0'], ['DELI', '#fff07a'], ['OYSTERS', '#7fd4ff'], ['BREWERY', '#ffc247'], ['SUSHI', '#ff8fa3'], ['BAGELS', '#ffe08a']];
+    const neon = (text, color) => {
+      const c = document.createElement('canvas'); c.width = 160; c.height = 60 + text.length * 118;
+      const x = c.getContext('2d');
+      x.fillStyle = '#06070a'; x.fillRect(0, 0, c.width, c.height);
+      x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = '700 104px "Avenir Next Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif';
+      const draw = () => { for (let i = 0; i < text.length; i++) x.fillText(text[i], c.width / 2, 92 + i * 118); };
+      x.shadowColor = color; x.fillStyle = color; for (const bl of [44, 22, 10]) { x.shadowBlur = bl; draw(); }
+      x.shadowBlur = 0; x.fillStyle = 'rgba(255,255,255,0.9)'; x.globalAlpha = 0.75; draw(); x.globalAlpha = 1;
+      x.strokeStyle = color; x.lineWidth = 5; x.shadowColor = color; x.shadowBlur = 16; x.beginPath(); x.roundRect(12, 12, c.width - 24, c.height - 24, 18); x.stroke();
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      return { tex: t, aspect: c.width / c.height };
+    };
+    const faces = WORDS.map(() => []), backs = [];
+    let n = 0;
+    for (const L of lots) {
+      if (r() > 0.42 || /MOHAI|Westlake Center|Pacific Place|Nordstrom/.test(L.name)) continue;
+      const wi = n++ % WORDS.length, d = L.door, hgt = Math.min(4.6, 1.0 + WORDS[wi][0].length * 0.62), w = hgt * 160 / (60 + WORDS[wi][0].length * 118);
+      const shift = (r() < 0.5 ? -1 : 1) * (3 + r() * 3), wx = d.x - d.nx * 2.4 + d.nz * shift, wz = d.z - d.nz * 2.4 - d.nx * shift;
+      const cx = wx + d.nx * (w / 2 + 0.35), cz = wz + d.nz * (w / 2 + 0.35), y = H(wx, wz) + 6.4 + r() * 1.6, a = Math.atan2(-d.nz, d.nx);
+      for (const sgn of [0, Math.PI]) faces[wi].push(new THREE.PlaneGeometry(w, hgt).rotateY(a + sgn).translate(cx + Math.sin(a + sgn) * 0.13, y, cz + Math.cos(a + sgn) * 0.13));
+      backs.push(new THREE.BoxGeometry(w + 0.1, hgt + 0.1, 0.24).rotateY(a).translate(cx, y, cz), new THREE.BoxGeometry(w + 0.7, 0.08, 0.08).rotateY(a).translate(cx - d.nx * 0.3, y + hgt * 0.3, cz - d.nz * 0.3));
+    }
+    WORDS.forEach(([word, color], i) => { if (!faces[i].length) return; const m = new THREE.Mesh(mergeGeometries(faces[i]), new THREE.MeshBasicMaterial({ map: neon(word, color).tex, color: new THREE.Color(2.4, 2.4, 2.4) })); m.frustumCulled = false; scene.add(m); });
+    if (backs.length) { const bm = new THREE.Mesh(mergeGeometries(backs), darkMetal); bm.frustumCulled = false; scene.add(bm); }
+    signCount = n;
+  }
+
   const fm = createFacadeMaterial();
   const bmesh = new THREE.Mesh(g.build(), fm.material); bmesh.frustumCulled = false;
   scene.add(bmesh);
@@ -442,7 +519,7 @@ export async function initRealWorld(app, mapName = 'slu') {
       for (const sg3 of segHash.get(key2) || []) {
         const ex = sg3.bx - sg3.ax, ez = sg3.bz - sg3.az, den = dx * ez - dz * ex; if (Math.abs(den) < 1e-6) continue;
         const t = ((sg3.ax - from.x) * ez - (sg3.az - from.z) * ex) / den, u = ((sg3.ax - from.x) * dz - (sg3.az - from.z) * dx) / den;
-        if (t > 0.02 && t < best && u >= 0 && u <= 1) best = t;
+        if (!sg3.low && t > 0.02 && t < best && u >= 0 && u <= 1) best = t;
       }
     }
     if (best < 1) { const t = Math.max(0.12, best - 0.08); to.x = from.x + dx * t; to.z = from.z + dz * t; }
@@ -677,7 +754,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     traffic: { cars, update: trafficUpdate, bump }, peds,
     pike: { sources: [], stops: [], coffee }, inSlow,
     start, pois, sources, stops: heroStops, coffeeSpots, streetName, nearestRoad, drawMap, credit: data.credit,
-    stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length },
+    stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length, parked: parkedCount, signs: signCount },
   };
   app.updateWorld = (dt) => { for (const u of updaters) u(dt); };
   app.update = (dt) => app.updateWorld(dt);

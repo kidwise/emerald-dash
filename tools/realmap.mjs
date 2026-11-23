@@ -27,7 +27,7 @@ await page.keyboard.press('Space'); await sleep(1500);
 console.log('after throw', await page.evaluate(() => JSON.stringify({ delivered: window.__app.game.state.delivered, score: window.__app.game.state.score })));
 // streetcar and dock jobs on the real map
 await page.evaluate(() => { const g = window.__app.game; g.state.time = 999; g.targets.forEach(t => { t.done = true; t.fade = 0; }); });
-const tramJob = await page.evaluate(() => { const a = window.__app, g = a.game, tr = a.world.streetcar.state; const fx = Math.cos(tr.h), fz = Math.sin(tr.h); g.van.reset(tr.x - fx * 26 - fz * 4.5, tr.z - fz * 26 + fx * 4.5, tr.h); g.spawnJob('tram'); return { tramSpeed: +tr.v.toFixed(1), heading: +tr.h.toFixed(2) }; });
+const tramJob = await page.evaluate(() => { const a = window.__app, g = a.game, tr = a.world.streetcar.state; const fx = Math.cos(tr.h), fz = Math.sin(tr.h); g.van.reset(tr.x - fx * 26 + fz * 3.6, tr.z - fz * 26 - fx * 3.6, tr.h); g.spawnJob('tram'); return { tramSpeed: +tr.v.toFixed(1), heading: +tr.h.toFixed(2) }; });
 await page.keyboard.down('KeyW');
 let threw = null; for (let i = 0; i < 700 && threw === null; i++) { const ok = await page.evaluate(() => { const g = window.__app.game; return g.aim.target && g.aim.target.kind === 'tram' ? g.aim.ok : 99; }); if (ok < 1.25) { await page.keyboard.press('Space'); threw = ok; } await sleep(16); }
 await sleep(1600); await page.keyboard.up('KeyW');
