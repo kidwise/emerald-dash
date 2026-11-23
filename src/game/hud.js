@@ -115,7 +115,7 @@ export function createHud() {
           <p class="tip">${credit}.</p>
           <p class="tip"><b>Shift:</b> the clock runs down and every delivery adds time, more for longer trips. Follow the glowing line to the selected job.
           <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a pick-up for a cross-town run: drive gently and hand over slowly.
-          <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake.<br><b>Explore:</b> no clock. Landmarks found: ${found} of ${places}.</p>
+          <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake.<br><b>Explore:</b> no clock. Stars on the map mark the landmarks and an amber line leads to the nearest one you have not found. Found so far: ${found} of ${places}.</p>
         </div>`;
       overlay.style.pointerEvents = 'auto';
       q(overlay, '.go').onclick = onStart;
@@ -146,12 +146,25 @@ export function createHud() {
     hideOverlay() { overlay.classList.remove('show'); overlay.style.pointerEvents = 'none'; },
 
     // north-up minimap that scrolls with the van
-    drawMap(van, targets, pickups, tram, cars = [], nav = null, painter = null) {
+    drawMap(van, targets, pickups, tram, cars = [], nav = null, painter = null, marks = []) {
       const c = map.getContext('2d');
       const w = map.width, h = map.height, k = 0.86;
       const X = (x) => w / 2 + (x - van.pos.x) * k, Z = (z) => h / 2 + (z - van.pos.z) * k;
       c.clearRect(0, 0, w, h);
       painter(c, X, Z, k);
+      // landmarks: a filled star once found, a pulsing outline until then; the nearest unfound one sticks to the edge
+      const star = (x, y, rad) => { c.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, q = i % 2 ? rad * 0.45 : rad; c[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * q, y + Math.sin(a) * q); } c.closePath(); };
+      let nearest = null, nd = 1e9;
+      for (const m of marks) { if (m.found) continue; const d = Math.hypot(m.x - van.pos.x, m.z - van.pos.z); if (d < nd) { nd = d; nearest = m; } }
+      const beat = 0.5 + 0.5 * Math.sin(performance.now() * 0.005);
+      for (const m of marks) {
+        let mx = X(m.x), mz = Z(m.z);
+        if (m === nearest) { mx = Math.max(12, Math.min(w - 12, mx)); mz = Math.max(12, Math.min(h - 12, mz)); }
+        if (mx < -10 || mx > w + 10 || mz < -10 || mz > h + 10) continue;
+        star(mx, mz, m.found ? 11 : 13 + beat * 3);
+        if (m.found) { c.fillStyle = 'rgba(157,255,207,0.6)'; c.fill(); }
+        else { c.fillStyle = 'rgba(10,16,24,0.7)'; c.fill(); c.lineWidth = 2.5; c.strokeStyle = '#ffc247'; c.stroke(); }
+      }
       if (nav && nav.pts.length > 1) { c.strokeStyle = nav.target.css; c.lineWidth = 3.5; c.globalAlpha = 0.85; c.lineJoin = 'round'; c.beginPath(); nav.pts.forEach(([x, z], i) => (i ? c.lineTo(X(x), Z(z)) : c.moveTo(X(x), Z(z)))); c.stroke(); c.globalAlpha = 1; }
       c.fillStyle = 'rgba(255,235,200,0.75)'; for (const q2 of cars) c.fillRect(X(q2.x) - 2, Z(q2.z) - 2, 4, 4);
       if (tram) { c.fillStyle = '#c77dff'; c.beginPath(); c.arc(X(tram.x), Z(tram.z), 5, 0, 7); c.fill(); }

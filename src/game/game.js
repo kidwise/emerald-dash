@@ -167,12 +167,22 @@ export function initGame(app) {
   }));
   route.frustumCulled = false; route.layers.set(1); route.visible = false;
   scene.add(route);
+  const AMBER = new THREE.Color(2.4, 1.5, 0.3);
+  const landmarks = () => [...POIS, ...STOPS].map(q => ({ x: q.x, z: q.z, name: q.name, found: album.has(q.name) }));
+  const nearestLandmark = () => {
+    let best = null, bd = 1e9;
+    for (const q of landmarks()) { if (q.found) continue; const d = Math.hypot(q.x - van.pos.x, q.z - van.pos.z); if (d < bd) { bd = d; best = q; } }
+    return best && { x: best.x, z: best.z, y: heightAt(best.x, best.z), name: best.name, col: AMBER, css: '#ffc247', tag: `★ ${best.name}`, landmark: true };
+  };
   let routeT = 0;
   const nav = { target: null, pts: [] };
   const updateRoute = () => {
     const live = targets.filter(t => !t.done).sort((a, b) => Math.hypot(a.x - van.pos.x, a.z - van.pos.z) - Math.hypot(b.x - van.pos.x, b.z - van.pos.z));
     const carrying = live.find(t => t.kind === 'grocery');
-    nav.target = carrying || live[(S.navSkip || 0) % Math.max(1, live.length)] || null;
+    // in explore mode the nearest landmark you have not found yet leads the list
+    const lm = S.explore ? nearestLandmark() : null;
+    const list = lm ? [lm, ...live] : live;
+    nav.target = carrying || list[(S.navSkip || 0) % Math.max(1, list.length)] || null;
     route.visible = !!nav.target && S.mode === 'play';
     if (!nav.target) { nav.pts = []; return; }
     const corners = routeBetween(van.pos.x, van.pos.z, nav.target.x, nav.target.z);
@@ -289,7 +299,7 @@ export function initGame(app) {
     van.heavy = false; van.limit = 0;
     hud.hideOverlay(); hud.setPlaying(true); hud.setScore(0, 0); hud.setCargo(null);
     for (let i = 0; i < 3; i++) spawnJob('parcel');
-    hud.toast(explore ? 'Explore' : 'Shift started', explore ? 'No clock. Find the landmarks, take jobs if you like.' : 'Every delivery adds time. Jobs keep coming.');
+    hud.toast(explore ? 'Explore' : 'Shift started', explore ? 'No clock. Follow the amber line to the nearest landmark; stars on the map show the rest.' : 'Every delivery adds time. Jobs keep coming.');
   };
   const resolve = () => { S.resolved++; S.spawnCd = 1.0; };
   const fishMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.6, 3, 8).rotateZ(Math.PI / 2).scale(1, 1, 0.5), new THREE.MeshStandardMaterial({ color: 0xc8cfd4, roughness: 0.25, emissive: 0x8a8478, emissiveIntensity: 1 }));
@@ -790,10 +800,12 @@ export function initGame(app) {
       hud.setClock(S.time, chips, S.explore ? `LANDMARKS ${album.size}/${PLACES}` : null, S.delivered);
       hud.setSpeed(van.speed * 2.237, Math.max(0, van.boost) / 3.6);
       if (frameN % 6 === 0) hud.setStreet(streetName());
-      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars, nav, world.drawMap);
+      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars, nav, world.drawMap, landmarks());
       const W = innerWidth, H = innerHeight, m = 46;
       const dv = (t) => (t.x - van.pos.x) ** 2 + (t.z - van.pos.z) ** 2;
-      hud.setPins(targets.filter(t => !t.done).sort((a, b) => dv(a) - dv(b)).slice(0, 3).map(t => {
+      const pinned = targets.filter(t => !t.done).sort((a, b) => dv(a) - dv(b)).slice(0, 3);
+      const lmPin = S.explore ? nearestLandmark() : null; if (lmPin) pinned.push(lmPin);
+      hud.setPins(pinned.map(t => {
         const p = project(t.x, t.y + 6.5, t.z);
         let x = p.x, y = p.y;
         if (p.behind) { x = W - x; y = H + 200; }
