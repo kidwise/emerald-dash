@@ -5,6 +5,7 @@ import { createRain } from '../world/rain.js';
 import { createLake } from '../world/landmarks.js';
 import { rng } from '../world/rng.js';
 import { setMap } from '../config.js';
+import { createIcons } from '../world/icons.js';
 import { createPikePlace, PIKE } from '../world/market.js';
 import { createCenter, createMonorail, createMarket, createRetailCore, textTexture, signPlane } from '../world/districts.js';
 import { createStreetcar } from '../world/landmarks.js';
@@ -51,7 +52,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     return u > v ? a + (b - a) * u + (c - b) * v : a + (c - d) * u + (d - a) * v;    // the same two triangles the terrain mesh draws
   };
   const updaters = [], glow = [], obstacles = [], colliders = [];
-  let parkedCount = 0, signCount = 0;
+  let parkedCount = 0, signCount = 0, iconSpots = null;
 
   // ---- hand-built landmarks take their real places; the map's own buildings make way for them
   const centreOf = (b) => { let x = 0, z = 0; for (const q of b.p) { x += q[0]; z += q[1]; } return [x / b.p.length, z / b.p.length]; };
@@ -73,8 +74,11 @@ export async function initRealWorld(app, mapName = 'slu') {
   const fountainAt = needleAt && [needleAt[0] - 203, needleAt[1] - 221];
   const inSet = (x, z, m = 0) => { if (!pikeT) return false; const [lx, lz] = pikeT.toLocal(x, z); return lx > -498 - m && lx < -386 + m && lz > 438 - m && lz < 714 + m; };
   const spheresB = data.buildings.find(b => /The Spheres/.test(b.n));
+  const pickB = (re) => data.buildings.find(b => re.test(b.n));
+  const mopopB = pickB(/MoPOP/), libraryB = pickB(/Central Library/), arenaB = pickB(/Climate Pledge Arena/), scienceB = pickB(/Pacific Science Center/);
+  if (arenaB) arenaB.h = 11;        // low walls; the pyramid roof is added on top
   data.buildings = data.buildings.filter((b) => {
-    if (b === spheresB) return false;
+    if (b === spheresB || b === mopopB || b === libraryB) return false;
     const [x, z] = centreOf(b);
     if (needleAt && (b === needleB || Math.hypot(x - glassAt[0], z - glassAt[1]) < 30)) return false;
     return !inSet(x, z);
@@ -324,6 +328,30 @@ export async function initRealWorld(app, mapName = 'slu') {
     const grow = createGlowPoints(gp, gc, gs, gph, { twinkle: 0.1 }); scene.add(grow.points); glow.push(grow);
     const nr = nearRoad(sx, sz, 3);
     if (nr) heroStops.push({ name: 'The Spheres', sub: 'Three glass domes of cloud-forest plants at Amazon’s headquarters, opened in 2018', x: nr.x, z: nr.z, look: [sx, baseY + 9, sz], dist: 52, lift: 5 });
+  }
+
+  // ================================================================ famous shapes: MoPOP, the library, the arena roof, arches, artworks
+  {
+    const sam = nearRoad(-23, 1197, 3);
+    let hammer = null;
+    if (sam) { const dx = -23 - sam.x, dz = 1197 - sam.z, d = Math.hypot(dx, dz) || 1, k = sam.rd.hw + 2.4; hammer = [sam.x + dx / d * k, sam.z + dz / d * k, Math.atan2(-dx, -dz)]; obstacles.push({ x: hammer[0], z: hammer[1], r: 1.4 }); }
+    // the gum wall stands on the kerb of the street nearest Post Alley
+    const gr = nearRoad(-160, 1122, 3);
+    let gum = null;
+    if (gr) { const dx = -160 - gr.x, dz = 1122 - gr.z, d = Math.hypot(dx, dz) || 1, k = gr.rd.hw + 2.6; gum = { at: [gr.x + dx / d * k, gr.z + dz / d * k], th: Math.atan2(gr.s.bx - gr.s.ax, gr.s.bz - gr.s.az) }; }
+    const icons = createIcons({ H, r, mopop: mopopB && mopopB.p, library: libraryB && libraryB.p, arena: arenaB && arenaB.p, science: scienceB && centreOf(scienceB),
+      eagle: [-1312, 251], hammer, gum });
+    iconSpots = { hammer, gum: gum && gum.at };
+    scene.add(icons.group); glow.push(...icons.glow); updaters.push(() => icons.update(app.time));
+    obstacles.push({ x: -1312, z: 251, r: 3 });
+    for (const [b, name, sub, dist, up] of [[mopopB, 'MoPOP', 'Museum of Pop Culture, wrapped in crumpled metal', 70, 9], [libraryB, 'Seattle Central Library', 'Faceted glass and steel, opened in 2004', 80, 26]]) {
+      if (!b) continue;
+      for (let i = 0; i < b.p.length; i++) { const p = b.p[i], q = b.p[(i + 1) % b.p.length]; segs.push({ ax: p[0], az: p[1], bx: q[0], bz: q[1] }); }
+      let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [x, z] of b.p) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+      footprints.push({ x0, x1, z0, z1, p: b.p });
+      const [cx, cz] = centreOf(b), nr = nearRoad(cx, cz, 4);
+      if (nr && nr.x > B.x0 + 8 && nr.x < B.x1 - 8 && nr.z > B.z0 + 8 && nr.z < B.z1 - 8) heroStops.push({ name, sub, x: nr.x, z: nr.z, look: [cx, H(cx, cz) + up, cz], dist, lift: 4 });
+    }
   }
 
   // names in lights on the famous fronts, and the holiday star
@@ -777,6 +805,8 @@ export async function initRealWorld(app, mapName = 'slu') {
   ]) if (x > B.x0 - 60 && x < B.x1 + 60 && z > B.z0 - 60 && z < B.z1 + 60) pois.push({ name, sub, x, z, r: rad });
   if (mono) { const q = mono[Math.floor(mono.length / 2)]; pois.push({ name: 'Seattle Center Monorail', sub: 'Built for the 1962 World’s Fair', x: q[0], z: q[1], r: 45 }); }
   for (const [re, sub] of [[/^Denny Park$/, 'Seattle’s oldest park'], [/Victor Steinbrueck Park/, 'Overlooking Elliott Bay, beside the market']]) { const pk = data.parks.find(q => re.test(q.n)); if (pk) { const [x, z] = centre(pk); pois.push({ name: pk.n, sub, x, z, r: 60 }); } }
+  // a landmark with a postcard stop is listed once, as the stop
+  for (let i = pois.length - 1; i >= 0; i--) if (heroStops.some(q => q.name === pois[i].name)) pois.splice(i, 1);
   // every landmark must be discoverable from the nearest street
   for (const q of pois) { const nr = nearRoad(q.x, q.z, 4); if (nr) q.r = Math.max(q.r, Math.hypot(nr.x - q.x, nr.z - q.z) + 25); }
   const wf = nearRoad(-25, 45, 3);
@@ -818,7 +848,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     traffic: { cars, update: trafficUpdate, bump }, peds,
     pike: { sources: [], stops: [], coffee }, inSlow,
     start, pois, sources, stops: heroStops, coffeeSpots, streetName, nearestRoad, drawMap, credit: data.credit,
-    stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length, parked: parkedCount, signs: signCount },
+    stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length, parked: parkedCount, signs: signCount, iconSpots },
   };
   app.updateWorld = (dt) => { for (const u of updaters) u(dt); };
   app.update = (dt) => app.updateWorld(dt);

@@ -40,7 +40,7 @@ Needs a WebGL2 browser with a real GPU. Resolution drops automatically if the fr
 | R | | Reset onto the nearest road |
 | T | | Toggle rain / clear evening |
 | Esc | | End the session |
-| M | | Mute |
+| M, or the speaker button | | Sound on / off (remembered) |
 
 The white marker on the ground shows where a parcel thrown *now* would land; it carries the van's speed,
 so release as the marker crosses the glowing ring. Faster throws, dead-centre drops and unbroken streaks score more.
@@ -72,6 +72,8 @@ photographic textures, hand-designed SVG signage, and the baked map and height g
 - `src/gfx/planar.js` — mirror pass for the wet streets; the mirror tilts to lie along the street the van is on.
 - `src/world/facade.js` — building surfaces; windows use interior mapping so lit rooms have real parallax depth.
 - `src/world/market.js` — Pike Place Market, modelled by hand: arcade, stalls, shopfronts, people.
+- `src/world/icons.js` — MoPOP, the Central Library, the arena roof, the Science Center arches, the Eagle,
+  Hammering Man and the Gum Wall.
 - `src/world/districts.js` — monorail, market sign and Great Wheel, holiday tree, Space Needle, glass garden, fountain.
 - `src/world/props.js`, `cars.js`, `pedestrians.js`, `landmarks.js`, `rain.js`, `sky.js` — lamps and trees, car
   models, pedestrians, water and the streetcar model, rain, sky.

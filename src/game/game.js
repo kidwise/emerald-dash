@@ -340,6 +340,10 @@ export function initGame(app) {
     hud.showResults({ won, explore: S.explore, grade, score: sc, delivered: S.delivered, perfect: S.perfect, bestCombo: S.bestCombo, topSpeed: S.topSpeed, best: isBest, bestScore: best, album: album.size, places: PLACES, minutes: S.elapsed / 60 }, () => startShift(S.explore), () => { S.mode = 'title'; S.titleT = 0; showTitle(); });
   };
 
+  // sound on/off: the M key or the speaker button; the choice is remembered
+  const toggleSound = () => { const muted = audio.toggleMute(); hud.setSound(!muted); try { localStorage.setItem('emerald-dash-muted', muted ? '1' : ''); } catch { /* ignore */ } hud.toast(muted ? 'Sound off' : 'Sound on'); };
+  try { if (localStorage.getItem('emerald-dash-muted')) audio.muted = true; } catch { /* ignore */ }
+  hud.soundButton(toggleSound, !audio.muted);
   addEventListener('keydown', (e) => {
     if (e.repeat) return;
     keys.add(e.code);
@@ -350,7 +354,7 @@ export function initGame(app) {
     if (e.code === 'Tab' && S.mode === 'play') { e.preventDefault(); S.navSkip = (S.navSkip || 0) + 1; }
     if (e.code === 'Space' && S.mode === 'play') { if (S.toss) { if (S.post) { S.post = null; hud.postcard(null); } catchToss(); } else if (S.post) { S.post = null; hud.postcard(null); } else throwParcel(); }
     if (e.code === 'KeyR' && S.mode === 'play') { const a = nearestRoadPoint(van.pos.x, van.pos.z); van.reset(a.x, a.z, a.h); }
-    if (e.code === 'KeyM') hud.toast(audio.toggleMute() ? 'Sound off' : 'Sound on');
+    if (e.code === 'KeyM') toggleSound();
     if (e.code === 'KeyT') setWeather(!S.clear);
   });
   addEventListener('keyup', (e) => keys.delete(e.code));

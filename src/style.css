@@ -51,6 +51,12 @@ html, body { margin: 0; height: 100%; background: #05080d; overflow: hidden; }
 .hud-prompt.show { opacity: 1; transform: translateX(-50%) scale(1); }
 .maplink { pointer-events: auto; display: inline-block; margin-top: 16px; font: 600 13px var(--font); color: var(--cyan); text-decoration: none; border-bottom: 1px solid rgba(85, 240, 255, 0.4); padding-bottom: 2px; }
 .maplink:hover { color: #fff; border-color: #fff; }
+.hud-sound { position: absolute; right: 26px; top: 254px; width: 42px; height: 42px; display: grid; place-items: center; pointer-events: auto; cursor: pointer; color: var(--ink); background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(234, 244, 255, 0.2); border-radius: 50%; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4); transition: all 0.15s; z-index: 5; }
+.hud-sound:hover { border-color: rgba(234, 244, 255, 0.6); transform: scale(1.06); }
+.hud-sound.off { color: #ff8a8a; border-color: rgba(255, 138, 138, 0.5); }
+#hud:not(.playing) .hud-sound { top: 22px; }
+#hud.looking .hud-sound { opacity: 0.35; }
+@media (max-width: 760px) { .hud-sound { top: 186px; right: 26px; } }
 .modes { display: flex; gap: 12px; flex-wrap: wrap; }
 button.go.alt { color: var(--ink); background: rgba(234, 244, 255, 0.10); border: 1px solid rgba(234, 244, 255, 0.35); box-shadow: none; }
 button.go.alt small { background: rgba(234, 244, 255, 0.14); }
