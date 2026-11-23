@@ -1,10 +1,12 @@
 // Downloads the photographic textures used by the hero landmarks from Poly Haven (CC0, https://polyhaven.com).
 // The files are committed, so this only needs re-running to add or refresh textures.
+// The committed copies were then recompressed to shrink the download:
+//   for f in public/assets/tex/*.jpg; do sips -s format jpeg -s formatOptions 68 "$f" --out "$f"; done
 import { writeFile, mkdir } from 'node:fs/promises';
 const OUT = 'public/assets/tex';
 const WANT = {
   red_brick_03: ['Diffuse', 'nor_gl'],
-  brick_pavement_02: ['Diffuse', 'nor_gl', 'Rough'],
+  brick_pavement_02: ['Diffuse', 'nor_gl'],
   weathered_brown_planks: ['Diffuse', 'nor_gl'],
   green_rough_planks: ['Diffuse', 'nor_gl'],
   painted_brick: ['Diffuse', 'nor_gl'],

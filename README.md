@@ -109,8 +109,18 @@ node tools/bake-map.mjs city                       # rebuild the map from raw Op
 node tools/bake-dem.mjs city                       # rebuild its ground heights from public elevation tiles
 ```
 
-## Names
+## Publishing
 
-Street, place and building names come from the map data. Shop signage is our own artwork using real shop names as
-place labels, with no company logos; the van livery and courier brand are invented. Replace real business names
-with stand-ins before publishing the game publicly, and keep the OpenStreetMap credit visible.
+`npm run build` produces a self-contained site in `dist/` (about 6 MB) that works at any URL path.
+
+- **Stand-in names.** A production build replaces real business names with invented ones and loads the stand-in
+  shop signs from `public/assets/signs-standin/`. The table is in `src/names.js`. Development shows real names;
+  add `?names=standin` to preview the published version.
+- **GitHub Pages.** `.github/workflows/pages.yml` builds and publishes the site. It only runs when started by hand:
+  enable Pages first (Settings → Pages → Source: GitHub Actions), then Actions → "Publish to GitHub Pages" → Run workflow.
+- **Credits.** The title screen carries the OpenStreetMap credit and a not-affiliated notice; keep both.
+
+Still real in a published build: street, park and landmark names (Space Needle, MoPOP, MOHAI, Pike Place Market),
+and the names of ordinary buildings that come straight from the map data, including hotels and offices. The
+landmark and artwork models are our own simplified shapes of real designs. If the game is ever used commercially,
+get advice on those first.

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createGlowPoints } from './props.js';
+import { asset } from '../config.js';
 
 // Recognisable shapes for famous buildings and artworks, built on their real footprints or positions:
 // MoPOP's crumpled metal, the Central Library's faceted glass, the arena's pyramid roof,
@@ -135,7 +136,7 @@ export function createIcons({ H, r, mopop, library, arena, science, eagle, hamme
   // ---------------------------------------------------------------- the Gum Wall: a brick wall freckled with colour
   if (gum) {
     const [gx, gz] = gum.at, y0 = H(gx, gz), a = gum.th, W = 16, Hh = 3.8;
-    const map = new THREE.TextureLoader().load('/assets/tex/red_brick_03_diff.jpg'); map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.set(W / 2.4, Hh / 2.4); map.colorSpace = THREE.SRGBColorSpace;
+    const map = new THREE.TextureLoader().load(asset('assets/tex/red_brick_03_diff.jpg')); map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.set(W / 2.4, Hh / 2.4); map.colorSpace = THREE.SRGBColorSpace;
     const wall = new THREE.Mesh(new THREE.BoxGeometry(0.4, Hh, W), new THREE.MeshStandardMaterial({ map, roughness: 0.8, emissiveMap: map, emissive: 0xffd2a0, emissiveIntensity: 0.6 }));
     wall.position.set(gx, y0 + Hh / 2, gz); wall.rotation.y = a; group.add(wall);
     const gp = [], gc = [], gs = [], gph = [], pal = [[1, 0.3, 0.6], [0.4, 0.9, 1], [1, 0.9, 0.3], [0.5, 1, 0.5], [1, 0.5, 0.2], [0.8, 0.5, 1], [1, 1, 1]];

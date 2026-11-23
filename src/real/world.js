@@ -4,7 +4,8 @@ import { buildLamps, buildTrees, createGlowPoints, chunks, byChunk, registerChun
 import { createRain } from '../world/rain.js';
 import { createLake } from '../world/landmarks.js';
 import { rng } from '../world/rng.js';
-import { setMap } from '../config.js';
+import { setMap, asset } from '../config.js';
+import { show } from '../names.js';
 import { createIcons } from '../world/icons.js';
 import { createScenes } from '../world/scenes.js';
 import { createPikePlace, PIKE } from '../world/market.js';
@@ -39,11 +40,11 @@ function flatShape(ring, y) {
 
 export async function initRealWorld(app, mapName = 'slu') {
   const { scene, renderer, ground, reflection } = app;
-  const data = await (await fetch(`/assets/map/${mapName}.json`)).json();
+  const data = await (await fetch(asset(`assets/map/${mapName}.json`))).json();
   const B = data.bounds, r = rng(47618);
   // real ground heights (tools/bake-dem.mjs); without the file the district is simply flat
   let HG = null;
-  try { const res = await fetch(`/assets/map/${mapName}-height.json`); if (res.ok) HG = await res.json(); } catch { /* flat */ }
+  try { const res = await fetch(asset(`assets/map/${mapName}-height.json`)); if (res.ok) HG = await res.json(); } catch { /* flat */ }
   const hgt = HG ? Float32Array.from(HG.data, v => v * HG.unit) : null;
   const H = (x, z) => {
     if (!hgt) return 0;
@@ -278,8 +279,8 @@ export async function initRealWorld(app, mapName = 'slu') {
     const sfm = createFacadeMaterial(); inner.add(new THREE.Mesh(sg.build(), sfm.material)); updaters.push(() => { sfm.uniforms.uTime.value = app.time; });
     // the brick street itself
     const ld = new THREE.TextureLoader(), bt = (f, srgb) => { const t = ld.load(f); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(16 / 2.6, 276 / 2.6); t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
-    const bmap = bt('/assets/tex/brick_pavement_02_diff.jpg', true);
-    const street = new THREE.Mesh(new THREE.PlaneGeometry(16, 276).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: bmap, normalMap: bt('/assets/tex/brick_pavement_02_nor.jpg', false), color: 0x8f8f8f, roughness: 0.3, emissiveMap: bmap, emissive: 0xffc890, emissiveIntensity: 0.3 }));
+    const bmap = bt(asset('assets/tex/brick_pavement_02_diff.jpg'), true);
+    const street = new THREE.Mesh(new THREE.PlaneGeometry(16, 276).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: bmap, normalMap: bt(asset('assets/tex/brick_pavement_02_nor.jpg'), false), color: 0x8f8f8f, roughness: 0.3, emissiveMap: bmap, emissive: 0xffc890, emissiveIntensity: 0.3 }));
     street.position.set(-440, PIKE.Y + 0.2, 574); street.layers.set(1); inner.add(street);
     const mk = createMarket(to, { core: true });
     inner.add(mk.group); glow.push(...mk.glow); updaters.push(() => mk.update(app.time));
@@ -381,7 +382,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   // names in lights on the famous fronts, and the holiday star
   {
     const wallSign = (lot, text, color, up, w) => {
-      const d = lot.front, wx = d.x - d.nx * 2.4, wz = d.z - d.nz * 2.4, y = H(wx, wz) + up, tex = textTexture([[text, 150, 128]], color, 1024, 256);
+      const d = lot.front, wx = d.x - d.nx * 2.4, wz = d.z - d.nz * 2.4, y = H(wx, wz) + up, tex = textTexture([[show(text), 150, 128]], color, 1024, 256);
       scene.add(signPlane(tex, w, w / 4, wx + d.nx * 0.35, y, wz + d.nz * 0.35, Math.atan2(d.nx, d.nz)));
       const back = new THREE.Mesh(new THREE.BoxGeometry(w + 0.3, w / 4 + 0.3, 0.2), darkMetal); back.position.set(wx + d.nx * 0.2, y, wz + d.nz * 0.2); back.rotation.y = Math.atan2(d.nx, d.nz); scene.add(back);
       return { wx, wz, y };
@@ -904,6 +905,8 @@ export async function initRealWorld(app, mapName = 'slu') {
     for (const gl of glow) { gl.uniforms.uTime.value = t; gl.uniforms.uScale.value = sc; }
   });
 
+  // published builds show stand-ins for real business names (see src/names.js)
+  for (const q of [...lots, ...pois, ...heroStops, ...sources, coffee]) { if (q.name) q.name = show(q.name); if (q.sub) q.sub = show(q.sub); }
   const far = { x: 1e5, z: 1e5 };
   app.world = {
     real: true, colliders, obstacles, segHash, segCell: SC, rain, updateLampPool, camClip, heightAt: H, dock, inWater,

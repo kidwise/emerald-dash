@@ -137,7 +137,7 @@ export function createHud() {
             <button class="go">START SHIFT <small>ENTER</small></button>
             <button class="go alt">EXPLORE <small>E</small></button>
           </div>
-          <p class="tip">${credit}.</p>
+          <p class="tip">${credit}. An unofficial fan project, not affiliated with any business or landmark shown.</p>
           <p class="tip"><b>Shift:</b> the clock runs down and every delivery adds time, more for longer trips. Follow the glowing line to the selected job.
           <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a pick-up for a cross-town run: drive gently and hand over slowly.
           <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake. Drive into a <b>gold</b> ring to race the monorail; stop at the Space Needle to ride to the top.<br><b>Explore:</b> no clock. Stars on the map mark the landmarks and an amber line leads to the nearest one you have not found. Found so far: ${found} of ${places}.</p>

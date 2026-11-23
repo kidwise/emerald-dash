@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="256" viewBox="0 0 2048 256">
+
+<rect width="2048" height="256" fill="#f4eede"/>
+<rect x="10" y="10" width="2028" height="236" fill="none" stroke="#a51d17" stroke-width="6"/>
+<text x="1024" y="176" text-anchor="middle" font-family="'Avenir Next Condensed', 'Futura', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif" font-weight="800" font-size="156" letter-spacing="26" fill="#a51d17">MEET THE PRODUCER</text>
+</svg>

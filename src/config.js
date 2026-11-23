@@ -13,6 +13,9 @@ export const FOG_DENSITY = 0.0036;
 export const MARKET_Y = -32;
 export const MARKET = { x0: -520, x1: -448, z0: 352, z1: 800 };
 
+// asset URLs are relative to wherever the game is hosted
+export const asset = (path) => import.meta.env.BASE_URL + path;
+
 let MAP = null;
 export function setMap(map) { MAP = map; }
 

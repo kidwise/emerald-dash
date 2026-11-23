@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createGlowPoints } from './props.js';
 import { rng } from './rng.js';
-import { MARKET_Y, CURB } from '../config.js';
+import { MARKET_Y, CURB, asset } from '../config.js';
+import { SIGN_DIR } from '../names.js';
 
 // Pike Place Market, built by hand at true scale: the open Main Arcade on the west side of the street
 // (fish, flowers, produce) and four shopfronts on the east side (yogurt, cheese, the first coffee shop, a bakery).
@@ -29,12 +30,12 @@ function tex(path, srgb = true) {
 }
 // A photographic surface that looks lit by the shop's own warm lamps: the texture also drives self-illumination.
 function surface(slug, { tint = 0xffffff, glow = 0.8, warm = 0xffd2a0, rough = 0.8 } = {}) {
-  const map = tex(`/assets/tex/${slug}_diff.jpg`);
-  return new THREE.MeshStandardMaterial({ map, normalMap: tex(`/assets/tex/${slug}_nor.jpg`, false), color: tint, roughness: rough, emissiveMap: map, emissive: new THREE.Color(warm).multiply(new THREE.Color(tint)), emissiveIntensity: glow });
+  const map = tex(asset(`assets/tex/${slug}_diff.jpg`));
+  return new THREE.MeshStandardMaterial({ map, normalMap: tex(asset(`assets/tex/${slug}_nor.jpg`), false), color: tint, roughness: rough, emissiveMap: map, emissive: new THREE.Color(warm).multiply(new THREE.Color(tint)), emissiveIntensity: glow });
 }
 const paint = (color, glow = 0.55, rough = 0.6, metal = 0) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, emissive: new THREE.Color(color).multiply(new THREE.Color(0xffd9b0)), emissiveIntensity: glow });
 const glowMat = (r, g, b) => new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b) });
-const sign = (file, k = 1.25) => new THREE.MeshBasicMaterial({ map: tex(`/assets/signs/${file}.svg`), color: new THREE.Color(k, k, k) });
+const sign = (file, k = 1.25) => new THREE.MeshBasicMaterial({ map: tex(asset(`${SIGN_DIR}/${file}.svg`)), color: new THREE.Color(k, k, k) });
 
 // box whose texture repeats every `tile` metres on every face
 function tbox(w, h, d, x, y, z, tile = 2) {

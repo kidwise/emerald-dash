@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="512" viewBox="0 0 1536 512">
+
+<rect width="1536" height="512" fill="#f1e8d2"/>
+<rect x="18" y="18" width="1500" height="476" fill="none" stroke="#1f3f7a" stroke-width="8"/>
+<g fill="#1f3f7a" text-anchor="middle">
+  <text x="768" y="245" font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="170" letter-spacing="8">LA CORBEILLE</text>
+  <text x="768" y="352" font-family="'Snell Roundhand', 'Brush Script MT', 'Apple Chancery', cursive" font-size="120" fill="#b8312a">very French bakery</text>
+  <text x="768" y="446" font-family="'Avenir Next Condensed', 'Futura', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="54" letter-spacing="20">CROISSANTS · BAGUETTES · MACARONS</text>
+</g>
+</svg>
