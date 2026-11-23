@@ -9,16 +9,16 @@ import { CURB, LAKE_Z, FOG_COLOR, FOG_DENSITY, Z_NORTH } from '../config.js';
 const box = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
 
 // ---------------------------------------------------------------- Lake Union
-export function createLake(reflection) {
+export function createLake(reflection, o = {}) {
   const uniforms = {
     tReflect: { value: reflection.rt.texture }, uReflectMatrix: { value: reflection.textureMatrix },
-    uTime: { value: 0 }, uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) }, uFogDensity: { value: FOG_DENSITY },
+    uTime: { value: 0 }, uPlanar: { value: o.planar ?? 1 }, uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) }, uFogDensity: { value: FOG_DENSITY },
   };
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */`varying vec3 vWPos; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vWPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
     fragmentShader: /* glsl */`
-      uniform sampler2D tReflect; uniform mat4 uReflectMatrix; uniform float uTime; uniform vec3 uFogColor; uniform float uFogDensity;
+      uniform sampler2D tReflect; uniform mat4 uReflectMatrix; uniform float uTime; uniform float uPlanar; uniform vec3 uFogColor; uniform float uFogDensity;
       varying vec3 vWPos;
       ${GLSL_NOISE}
       ${GLSL_SKY}
@@ -39,7 +39,7 @@ export function createLake(reflection) {
         refl /= 5.0;
         vec3 R = reflect(-V, N);
         vec3 sky = skyColor(normalize(vec3(R.x, abs(R.y) + 0.02, R.z)), uTime);
-        refl = max(refl, sky * 0.6);
+        refl = mix(sky * 1.3, max(refl, sky * 0.6), uPlanar);
         vec3 deep = vec3(0.004, 0.012, 0.018);
         vec3 col = mix(deep, refl, clamp(fres * 1.5 + 0.08, 0.0, 1.0));
         float fogF = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist * 0.5);
@@ -47,8 +47,8 @@ export function createLake(reflection) {
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2600, 1300).rotateX(-Math.PI / 2), mat);
-  mesh.position.set(0, -0.55, LAKE_Z - 650 + 0.5);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(o.w ?? 2600, o.d ?? 1300).rotateX(-Math.PI / 2), mat);
+  mesh.position.set(o.x ?? 0, o.y ?? -0.55, o.z ?? LAKE_Z - 650 + 0.5);
   mesh.layers.set(1);
   return { mesh, uniforms };
 }

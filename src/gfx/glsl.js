@@ -57,25 +57,27 @@ float lampSum(vec3 P){
   float kz = floor(P.z / LAMP_PITCH + 0.5);
   for (int i = 0; i < N_AV; i++) {
     float dx = P.x - AVX[i];
-    if (abs(dx) > AVHW[i] + 24.0) continue;
+    if (abs(dx) > AVHW[i] + 24.0 || P.z < AVZ0[i] - 30.0 || P.z > AVZ1[i] + 30.0) continue;
     for (int o = -1; o <= 1; o++) {
       float k = kz + float(o);
-      if (mod(k, 4.0) < 0.5 || k < -11.5 || k > 15.5) continue;
       float lz = k * LAMP_PITCH;
-      sum += lampFall(P, vec3(AVX[i] - AVHW[i] + 1.4, LAMP_H, lz));
-      sum += lampFall(P, vec3(AVX[i] + AVHW[i] - 1.4, LAMP_H, lz));
+      if (mod(k, 4.0) < 0.5 || lz < AVZ0[i] + 2.0 || lz > AVZ1[i] - 2.0) continue;
+      float ly = LAMP_H + terrainH(vec2(AVX[i], lz));
+      sum += lampFall(P, vec3(AVX[i] - AVHW[i] + 1.4, ly, lz));
+      sum += lampFall(P, vec3(AVX[i] + AVHW[i] - 1.4, ly, lz));
     }
   }
   float kx = floor(P.x / LAMP_PITCH + 0.5);
   for (int j = 0; j < N_ST; j++) {
     float dz = P.z - STZ[j];
-    if (abs(dz) > STHW[j] + 24.0) continue;
+    if (abs(dz) > STHW[j] + 24.0 || P.x < STX0[j] - 30.0 || P.x > STX1[j] + 30.0) continue;
     for (int o = -1; o <= 1; o++) {
       float k = kx + float(o);
-      if (mod(k, 4.0) < 0.5 || abs(k) > 6.5) continue;
       float lx = k * LAMP_PITCH;
-      sum += lampFall(P, vec3(lx, LAMP_H, STZ[j] + STHW[j] - 1.4));
-      if (STZ[j] - STHW[j] > Z_NORTH - 1.0) sum += lampFall(P, vec3(lx, LAMP_H, STZ[j] - STHW[j] + 1.4));
+      if (mod(k, 4.0) < 0.5 || lx < STX0[j] + 2.0 || lx > STX1[j] - 2.0) continue;
+      float ly = LAMP_H + terrainH(vec2(lx, STZ[j] + 20.0));
+      sum += lampFall(P, vec3(lx, ly, STZ[j] + STHW[j] - 1.4));
+      sum += lampFall(P, vec3(lx, ly, STZ[j] - STHW[j] + 1.4));
     }
   }
   return sum;

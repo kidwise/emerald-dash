@@ -11,7 +11,7 @@ export class FacadeGeo {
     this.n = 0;
   }
   _v(x, y, z, nx, ny, nz, u, v, w, h, o) {
-    this.pos.push(x, y, z); this.nor.push(nx, ny, nz); this.fuv.push(u, v); this.dim.push(w, h);
+    this.pos.push(x, y + (this.yOff || 0), z); this.nor.push(nx, ny, nz); this.fuv.push(u, v); this.dim.push(w, h);
     this.par.push(o.style, o.seed ?? 0, o.floorH ?? 4, o.bayW ?? 1.5);
     this.par2.push(o.groundH ?? 0, o.lit ?? 0.4, o.a ?? 0, o.b ?? 0);
     const t = o.tint ?? [0.2, 0.2, 0.2], t2 = o.tint2 ?? [0.5, 0.5, 0.5];

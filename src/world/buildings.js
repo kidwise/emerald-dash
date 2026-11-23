@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FacadeGeo, STYLE, createFacadeMaterial } from './facade.js';
-import { cityBlocks, Z_SOUTH, X_WEST, X_EAST } from '../config.js';
+import { cityCells, Z_SOUTH, SIDEWALK as SW, hillF, MARKET_Y, district } from '../config.js';
 
 export function rng(seed) {
   let a = seed >>> 0;
@@ -18,7 +18,6 @@ const BRICKS = [[0.30, 0.10, 0.065], [0.24, 0.085, 0.06], [0.34, 0.20, 0.12], [0
 const PANELS = [[0.30, 0.31, 0.32], [0.16, 0.17, 0.18], [0.34, 0.30, 0.25], [0.09, 0.10, 0.11]];
 const pick = (r, a) => a[Math.floor(r() * a.length) % a.length];
 
-const SIDEWALK = 4.6;
 
 // Each builder adds geometry for one building on lot {x0,x1,z0,z1}.
 const BUILDERS = {
@@ -125,6 +124,24 @@ const BUILDERS = {
   },
 };
 
+// department store: tall stone storeys with big lit display windows
+BUILDERS.retail = (g, r, L, o) => {
+  const floors = o.floors ?? 6, gh = 8.2, fh = 5.4;
+  const H = gh + floors * fh + 1.2;
+  const tint = o.tint ?? pick(r, [[0.40, 0.37, 0.31], [0.30, 0.29, 0.27], [0.36, 0.26, 0.20]]);
+  g.box(L.x0, L.x1, L.z0, L.z1, 0, H, { style: STYLE.BRICK, seed: r() * 50, floorH: fh, bayW: 4.6, groundH: gh, lit: o.lit ?? 0.8, a: 0, tint });
+  const s = 0.2;
+  g.box(L.x0 - s, L.x1 + s, L.z0 - s, L.z1 + s, H - 0.5, H, { style: STYLE.EMISSIVE, lit: 1.0, tint: [1.0, 0.82, 0.55] }, false);
+  penthouse(g, r, L, H);
+  return H;
+};
+// Pike Place: long, low market sheds, every stall lit
+BUILDERS.market = (g, r, L, o) => {
+  const H = 5.2 + 4.2 * (o.floors ?? 1);
+  g.box(L.x0, L.x1, L.z0, L.z1, 0, H, { style: STYLE.BRICK, seed: r() * 50, floorH: 4.2, bayW: 3.0, groundH: 5.2, lit: 0.9, a: 1, tint: o.tint ?? [0.20, 0.27, 0.22] });
+  return H;
+};
+
 function penthouse(g, r, L, H) {
   const w = L.x1 - L.x0, d = L.z1 - L.z0;
   if (w < 18 || d < 18) return;
@@ -149,50 +166,102 @@ const INNER = {
   '1,5': [[0, 0.56, 0, 1, 'office', { floors: 10, variant: 2 }, 'Lakefront Tech Campus'], [0.64, 1, 0, 1, 'resi', { floors: 14, tw: 20, td: 40 }, 'Valley Street Hotel']],
 };
 
+const short = (n) => (n || '').replace(/ (St|Ave N|Ave|Way)$/, '');
+const LABEL = { office: 'Building', brick: 'Lofts', resi: 'Tower', lab: 'Labs', retail: 'Store', market: 'Market Hall', grocery: 'Market' };
+
 export function createBuildings() {
   const g = new FacadeGeo();
   const out = { stacks: [], beacons: [] };
   const colliders = [];   // axis-aligned boxes {x0,x1,z0,z1}
-  const lots = [];        // named buildings with their footprint
+  const lots = [];        // buildings with footprint, name and delivery door
   const r = rng(20261123);
+  const used = new Set();
 
-  const add = (type, L, o, name) => {
+  // add one building; the cell tells us which walls face a street so we can place the door
+  const add = (type, L, o, name, c, base = 0) => {
+    const ns = out.stacks.length, nb = out.beacons.length;
+    g.yOff = base;
     const H = BUILDERS[type](g, r, L, { ...o, out });
+    g.yOff = 0;
+    for (let i = ns; i < out.stacks.length; i++) out.stacks[i][1] += base;
+    for (let i = nb; i < out.beacons.length; i++) out.beacons[i][1] += base;
     colliders.push({ x0: L.x0, x1: L.x1, z0: L.z0, z1: L.z1 });
-    lots.push({ ...L, type, name, h: H });
+    const lot = { ...L, type, h: H, base, name: null, district: district((L.x0 + L.x1) / 2, (L.z0 + L.z1) / 2) };
+    if (c) {
+      const fx0 = c.x0 + (c.roads.w ? SW : 0), fx1 = c.x1 - (c.roads.e ? SW : 0), fz0 = c.z0 + (c.roads.n ? SW : 0), fz1 = c.z1 - (c.roads.s ? SW : 0);
+      const mx = (L.x0 + L.x1) / 2, mz = (L.z0 + L.z1) / 2;
+      if (c.roads.e && Math.abs(L.x1 - fx1) < 0.2) lot.door = { x: L.x1 + 2.4, z: mz, nx: 1, nz: 0 };
+      else if (c.roads.w && Math.abs(L.x0 - fx0) < 0.2) lot.door = { x: L.x0 - 2.4, z: mz, nx: -1, nz: 0 };
+      else if (c.roads.s && !c.cliff && Math.abs(L.z1 - fz1) < 0.2) lot.door = { x: mx, z: L.z1 + 2.4, nx: 0, nz: 1 };
+      else if (c.roads.n && Math.abs(L.z0 - fz0) < 0.2) lot.door = { x: mx, z: L.z0 - 2.4, nx: 0, nz: -1 };
+      if (lot.door) {
+        const stem = name || `${short(c.avenue)} & ${short(c.street)} ${LABEL[type] || 'Building'}`;
+        let nm = stem;
+        for (let k = 2; used.has(nm); k++) nm = `${stem} ${k}`;
+        used.add(nm); lot.name = nm; lot.district = district(lot.door.x, lot.door.z);
+      }
+    }
+    lots.push(lot);
+    return lot;
+  };
+  const randomSpec = (zone) => {
+    const t = r();
+    if (zone === 'core') return t < 0.45 ? ['office', { floors: 22 + Math.floor(r() * 24), variant: 2, lit: 0.55 }] : t < 0.62 ? ['resi', { floors: 26 + Math.floor(r() * 14), tw: 28, td: 30 }] : t < 0.85 ? ['retail', { floors: 4 + Math.floor(r() * 4) }] : ['brick', { floors: 3 + Math.floor(r() * 3) }];
+    if (zone === 'hill') return t < 0.35 ? ['office', { floors: 8 + Math.floor(r() * 14), variant: 0 }] : t < 0.7 ? ['brick', { floors: 3 + Math.floor(r() * 4) }] : ['retail', { floors: 3 + Math.floor(r() * 3) }];
+    return t < 0.5 ? ['office', { floors: 6 + Math.floor(r() * 9) }] : t < 0.7 ? ['brick', { floors: 2 + Math.floor(r() * 3) }] : t < 0.85 ? ['resi', { floors: 18 + Math.floor(r() * 16), tw: 26, td: 28 }] : ['lab', { floors: 6 + Math.floor(r() * 4) }];
   };
 
-  for (const b of cityBlocks()) {
-    const x0 = b.x0 + SIDEWALK, x1 = b.x1 - SIDEWALK, z0 = b.z0 + SIDEWALK, z1 = b.z1 - SIDEWALK;
+  for (const c of cityCells()) {
+    const x0 = c.x0 + (c.roads.w ? SW : 0), x1 = c.x1 - (c.roads.e ? SW : 0), z0 = c.z0 + (c.roads.n ? SW : 0), z1 = c.cliff ? c.z1 : c.z1 - (c.roads.s ? SW : 0);
     const w = x1 - x0, d = z1 - z0;
-    if (b.kind === 'inner') {
-      for (const [u0, u1, v0, v1, type, o, name] of INNER[`${b.col},${rowIndex(b)}`]) {
-        add(type, { x0: x0 + w * u0, x1: x0 + w * u1, z0: z0 + d * v0, z1: z0 + d * v1 }, o, name);
+    if (c.kind === 'slu') {
+      for (const [u0, u1, v0, v1, type, o, name] of INNER[`${c.col},${c.row}`]) add(type, { x0: x0 + w * u0, x1: x0 + w * u1, z0: z0 + d * v0, z1: z0 + d * v1 }, o, name, c);
+    } else if (c.kind === 'outerE') {
+      const face = { x0, x1: x0 + 44 };
+      const parts = r() < 0.6 ? [[z0, z0 + d * 0.46], [z0 + d * 0.54, z1]] : [[z0, z1]];
+      for (const [a, b] of parts) { const [type, o] = randomSpec(c.zm > 264 ? 'core' : 'slu'); if (type === 'resi') o.td = Math.min(28, b - a - 6); add(type, { ...face, z0: a, z1: b }, o, null, c); }
+      backdrop(g, r, { x0: face.x1 + 16, x1: c.x1 - 40, z0, z1 }, colliders);
+    } else if (c.kind === 'outerS') {
+      if (c.roads.n) { const [type, o] = randomSpec('core'); add(type, { x0, x1, z0, z1: z0 + 50 }, o, null, c, hillF(x0) - 0.4); }
+      backdrop(g, r, { x0, x1, z0: z0 + 70, z1: z0 + 200 }, colliders, hillF(x0) - 2);
+    } else if (c.kind === 'backdrop') {
+      backdrop(g, r, { x0: x0 + 8, x1: x1 - 8, z0: z0 + 8, z1: z1 - 8 }, colliders);
+    } else if (c.kind === 'market') {
+      // sheds along the west side of 1st Ave, with the open waterfront deck behind them
+      const hall = c.zm > 528;
+      add(hall ? 'market' : 'brick', { x0: x1 - 19, x1, z0: z0 + 3, z1: z1 - 3 }, hall ? { floors: 1 } : { floors: 3 }, hall ? `Pike Place Market, ${short(c.street)} Arcade` : null, c, MARKET_Y);
+    } else if (c.kind === 'sluW') {
+      const split = w > 60 && r() < 0.5;
+      const parts = split ? [[x0, x0 + w * 0.47], [x0 + w * 0.53, x1]] : [[x0, x1]];
+      for (const [a, b] of parts) { const [type, o] = randomSpec('slu'); if (type === 'resi') o.tw = Math.min(26, b - a - 6); add(type, { x0: a, x1: b, z0, z1 }, o, null, c); }
+    } else if (c.kind === 'downtown') {
+      const key = `${Math.round(c.xm)},${Math.round(c.zm)}`;
+      if (c.cliff) {
+        // level block above Lenora St: a concrete plinth drops to the sloping street behind it
+        g.box(x0, x1, z1 - 3, z1, hillF(x0) - 2, 0.3, { style: STYLE.SOLID, seed: r(), floorH: 3, bayW: 4, tint: [0.22, 0.22, 0.21] }, false);
+        const [type, o] = randomSpec('slu'); if (type === 'resi') { o.tw = Math.min(28, w - 6); o.td = Math.min(28, d - 6); }
+        add(type, { x0, x1, z0, z1 }, o, null, c);
+      } else if (key === '-44,308') add('grocery', { x0, x1, z0, z1 }, {}, 'Whole Foods Market', c);
+      else if (key === '44,308') add('office', { x0, x1, z0, z1 }, { floors: 30, variant: 2, lit: 0.6 }, 'Denny Tower', c);
+      else if (key === '-132,572') add('retail', { x0, x1, z0, z1 }, { floors: 4, lit: 0.9 }, 'Westlake Center', c, hillF(x0) - 0.4);
+      else if (key === '-44,572') add('retail', { x0, x1, z0, z1 }, { floors: 5, tint: [0.42, 0.40, 0.36], lit: 0.9 }, 'Fifth Avenue Flagship Store', c);
+      else if (key === '44,572') add('retail', { x0, x1, z0, z1 }, { floors: 6, tint: [0.34, 0.25, 0.19], lit: 0.9 }, 'Pacific Place', c);
+      else if (key === '-132,660') {
+        // Westlake Park: an open plaza in front of a slim tower
+        add('office', { x0, x1, z0: z0 + d * 0.5, z1 }, { floors: 26, variant: 0, lit: 0.55 }, 'Westlake Park Tower', c, hillF(x0) - 0.4);
+      } else if (c.hill) {
+        // stepped massing down the slope: three strips, each with its own footing
+        const [type, o] = randomSpec('hill');
+        const n = 3, floors = (o.floors || 6);
+        for (let k = 0; k < n; k++) {
+          const a = x0 + (w * k) / n, b = x0 + (w * (k + 1)) / n;
+          add(type, { x0: a, x1: b, z0, z1 }, { ...o, floors: floors + (k === 1 ? 2 : 0) }, null, c, hillF(a) - 0.4);
+        }
+      } else {
+        const [type, o] = randomSpec('core');
+        if (type === 'resi' || r() < 0.4) add(type, { x0, x1, z0, z1 }, o, null, c);
+        else { add(type, { x0, x1, z0, z1: z0 + d * 0.47 }, o, null, c); const [t2, o2] = randomSpec('core'); if (t2 === 'resi') o2.td = Math.min(28, d * 0.47 - 6); add(t2, { x0, x1, z0: z0 + d * 0.53, z1 }, o2, null, c); }
       }
-    } else if (b.kind === 'outerW' || b.kind === 'outerE') {
-      // one row of buildings facing the boundary avenue, then a cheaper second row for depth
-      const face = b.kind === 'outerW' ? { x0: x1 - 44, x1 } : { x0, x1: x0 + 44 };
-      const split = r() < 0.6;
-      const kinds = ['office', 'office', 'brick', 'resi', 'lab', 'office'];
-      const parts = split ? [[z0, z0 + d * 0.46], [z0 + d * 0.54, z1]] : [[z0, z1]];
-      for (const [a, c] of parts) {
-        const type = pick(r, kinds);
-        const o = type === 'office' ? { floors: 6 + Math.floor(r() * 9) } : type === 'brick' ? { floors: 2 + Math.floor(r() * 3) }
-          : type === 'resi' ? { floors: 18 + Math.floor(r() * 16), tw: 26, td: Math.min(28, c - a - 6) } : { floors: 6 + Math.floor(r() * 4) };
-        add(type, { ...face, z0: a, z1: c }, o, null);
-      }
-      backdrop(g, r, b.kind === 'outerW' ? { x0: b.x0 + 40, x1: face.x0 - 16, z0, z1 } : { x0: face.x1 + 16, x1: b.x1 - 40, z0, z1 });
-    } else if (b.kind === 'outerS') {
-      const L = { x0, x1, z0, z1: z0 + 52 };
-      if (b.col === 0) add('grocery', L, {}, 'Whole Foods Market');
-      else add('office', L, { floors: 30, variant: 2, lit: 0.6 }, 'Denny Tower');
-      backdrop(g, r, { x0, x1, z0: z0 + 70, z1: z0 + 250 });
-    } else {
-      // corners south of Denny
-      const west = b.x1 <= X_WEST + 1;
-      const L = west ? { x0: x1 - 46, x1, z0, z1: z0 + 50 } : { x0, x1: x0 + 46, z0, z1: z0 + 50 };
-      add(west ? 'resi' : 'office', L, west ? { floors: 30, tw: 28, td: 30 } : { floors: 17, variant: 1 }, null);
-      backdrop(g, r, west ? { x0: b.x0 + 40, x1: L.x0 - 16, z0, z1: z0 + 250 } : { x0: L.x1 + 16, x1: b.x1 - 40, z0, z1: z0 + 250 });
     }
   }
 
@@ -204,13 +273,8 @@ export function createBuildings() {
   return { mesh, uniforms, colliders, lots, stacks: out.stacks, beacons: out.beacons };
 }
 
-function rowIndex(b) {
-  // cityBlocks() rows run south -> north starting at 0 for the first inner row
-  return b.row;
-}
-
 // Cheap, fog-softened towers filling the area behind the playable streets.
-function backdrop(g, r, A) {
+function backdrop(g, r, A, colliders, base = 0) {
   const w = A.x1 - A.x0, d = A.z1 - A.z0;
   if (w < 30 || d < 30) return;
   const nx = Math.max(1, Math.round(w / 70)), nz = Math.max(1, Math.round(d / 70));
@@ -218,18 +282,19 @@ function backdrop(g, r, A) {
     if (r() < 0.2) continue;
     const cx = A.x0 + (i + 0.5) * w / nx, cz = A.z0 + (j + 0.5) * d / nz;
     const bw = 22 + r() * 22, bd = 22 + r() * 22, h = 22 + r() * r() * 110;
-    g.box(cx - bw / 2, cx + bw / 2, cz - bd / 2, cz + bd / 2, 0, h, {
+    g.box(cx - bw / 2, cx + bw / 2, cz - bd / 2, cz + bd / 2, base, h, {
       style: STYLE.SKYLINE, seed: r() * 90, lit: 0.3 + r() * 0.3, a: r() < 0.3 ? 1 : 0, b: 1,
       tint: [0.03 + r() * 0.03, 0.035 + r() * 0.03, 0.045 + r() * 0.03], tint2: pick(r, [[0.5, 0.8, 1.0], [1.0, 0.7, 0.4], [1.0, 0.3, 0.45]]),
     });
+    if (colliders) colliders.push({ x0: cx - bw / 2, x1: cx + bw / 2, z0: cz - bd / 2, z1: cz + bd / 2 });
   }
 }
 
 // Downtown: a cluster of tall towers to the south, glowing through the rain.
 function skyline(g, r) {
   for (let i = 0; i < 46; i++) {
-    const cx = -330 + r() * 560, cz = Z_SOUTH + 300 + r() * 420;
-    const k = Math.exp(-Math.pow((cx + 40) / 220, 2));
+    const cx = -460 + r() * 820, cz = Z_SOUTH + 250 + r() * 380;
+    const k = Math.exp(-Math.pow((cx + 120) / 260, 2));
     const h = 60 + r() * 90 + k * r() * 190;
     const bw = 26 + r() * 22, bd = 26 + r() * 22;
     g.box(cx - bw / 2, cx + bw / 2, cz - bd / 2, cz + bd / 2, 0, h, {

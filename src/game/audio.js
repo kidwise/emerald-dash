@@ -93,6 +93,7 @@ export function createAudio() {
     }
   };
 
+  api.setRain = (on) => { if (!ctx) { api.rainOff = !on; return; } n.rain.g.gain.setTargetAtTime(on ? 0.035 : 0.004, ctx.currentTime, 0.4); n.rain2.g.gain.setTargetAtTime(on ? 0.03 : 0.004, ctx.currentTime, 0.4); };
   api.toggleMute = () => { api.muted = !api.muted; if (master) master.gain.setTargetAtTime(api.muted ? 0 : 0.8, ctx.currentTime, 0.05); return api.muted; };
   return api;
 }

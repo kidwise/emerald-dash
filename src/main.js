@@ -45,6 +45,7 @@ scene.add(new THREE.HemisphereLight(0x6d8fd0, 0x1a1512, 0.55));
 const post = createPost(renderer, scene, camera);
 
 const app = { renderer, scene, camera, sky, ground, reflection, post, params, time: 0 };
+app.rebakeEnvironment = () => { const old = scene.environment; scene.environment = bakeEnvironment(renderer, sky); scene.add(sky.mesh); if (old) old.dispose(); };
 window.__app = app;
 
 const { initWorld } = await import('./world/index.js').catch((e) => { console.error(e); return {}; });
@@ -69,6 +70,7 @@ if (params.get('cam')) {
   camera.position.set(c[0], c[1], c[2]);
   camera.lookAt(c[3], c[4], c[5]);
   app.freeCam = true;
+  document.getElementById('hud').style.display = 'none';
 }
 
 const clock = new THREE.Clock();

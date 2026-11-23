@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { AVENUES, STREETS, CURB, Z_NORTH, Z_SOUTH, X_WEST, X_EAST, LAKE_Z } from '../config.js';
+import { groundHeight, heightAt, inBounds } from '../config.js';
+export { groundHeight };
 import { shadowTex } from '../world/props.js';
 
 const W = 2.12;            // body width
@@ -248,13 +249,6 @@ const P = {
   grip: 7.5, driftGrip: 1.9, wheelbase: AXLE_F - AXLE_R,
 };
 
-export function groundHeight(x, z) {
-  if (z < Z_NORTH) return CURB;
-  for (const a of AVENUES) if (Math.abs(x - a.x) < a.hw) return 0;
-  for (const s of STREETS) if (Math.abs(z - s.z) < s.hw) return 0;
-  return CURB;
-}
-
 export class Van {
   constructor(world) {
     this.model = createVanModel();
@@ -266,13 +260,18 @@ export class Van {
     this.speed = 0; this.slip = 0; this.drifting = false; this.boost = 0;
     this.y = 0; this.vy = 0; this.roll = 0; this.pitch = 0; this.bounce = 0; this.bounceV = 0;
     this.impact = 0; this.onKerb = false; this.braking = false; this.wheelSpin = 0;
+    this.air = false; this.airT = 0; this.vyGround = 0; this.gyPrev = undefined; this.kerbY = 0; this.slopePitch = 0; this.lastOk = new THREE.Vector3(5.2, 0, 236);
     this.events = [];
     this.sync(0);
   }
-  reset(x, z, heading) { this.pos.set(x, 0, z); this.heading = heading; this.vel.set(0, 0); this.yawRate = 0; this.steer = 0; this.boost = 0; }
+  reset(x, z, heading) {
+    this.pos.set(x, 0, z); this.heading = heading; this.vel.set(0, 0); this.yawRate = 0; this.steer = 0; this.boost = 0;
+    this.air = false; this.vy = 0; this.vyGround = 0; this.gyPrev = undefined; this.kerbY = 0; this.y = heightAt(x, z); this.lastOk.set(x, 0, z);
+  }
   get forward() { return new THREE.Vector2(Math.cos(this.heading), Math.sin(this.heading)); }
 
   update(dt, input) {
+    if (this.air) input = { throttle: 0, steer: 0, drift: false };
     const fx = Math.cos(this.heading), fz = Math.sin(this.heading);
     const rx = -fz, rz = fx;
     let vf = this.vel.x * fx + this.vel.y * fz;
@@ -301,11 +300,11 @@ export class Van {
     this.steer += (target - this.steer) * Math.min(1, dt * (input.steer === 0 ? 9 : 6.5));
     const handbrake = input.drift && sp > 4;
     let yawTarget = (vf / P.wheelbase) * Math.tan(this.steer) * (handbrake ? 1.55 : 1.0);
-    this.yawRate += (yawTarget - this.yawRate) * Math.min(1, dt * (handbrake ? 5 : 9));
+    if (!this.air) this.yawRate += (yawTarget - this.yawRate) * Math.min(1, dt * (handbrake ? 5 : 9));
     this.heading += this.yawRate * dt;
 
     // lateral grip: tyres let go progressively on the wet road
-    const grip = (handbrake ? P.driftGrip : P.grip) / (1 + Math.abs(vr) * 0.10);
+    const grip = this.air ? 0 : (handbrake ? P.driftGrip : P.grip) / (1 + Math.abs(vr) * 0.10);
     vr -= vr * Math.min(1, grip * dt);
     if (handbrake) vf -= vf * 0.35 * dt;
     this.slip = Math.abs(vr);
@@ -324,10 +323,33 @@ export class Van {
     this.vf = this.vel.x * nfx + this.vel.y * nfz;
 
     // kerbs + suspension
-    const gh = groundHeight(this.pos.x, this.pos.z);
-    this.onKerb = gh > 0.01;
-    if (Math.abs(gh - this.y) > 0.02) { this.bounceV += (gh > this.y ? 1 : -0.6) * Math.min(2.2, 0.5 + this.speed * 0.09); }
-    this.y += (gh - this.y) * Math.min(1, dt * 14);
+    const terr = heightAt(this.pos.x, this.pos.z);
+    const kerb = groundHeight(this.pos.x, this.pos.z) - terr;
+    this.onKerb = kerb > 0.01;
+    if (Math.abs(kerb - this.kerbY) > 0.02 && !this.air) this.bounceV += (kerb > this.kerbY ? 1 : -0.6) * Math.min(2.2, 0.5 + this.speed * 0.09);
+    this.kerbY += (kerb - this.kerbY) * Math.min(1, dt * 14);
+    const gy = terr + this.kerbY;
+    // hills: when the road falls away (or levels off) faster than the van can follow, it flies
+    const slope = (heightAt(this.pos.x + nfx * 1.5, this.pos.z + nfz * 1.5) - heightAt(this.pos.x - nfx * 1.5, this.pos.z - nfz * 1.5)) / 3;
+    let pitchGround = Math.atan(slope);
+    if (this.air) {
+      this.vy -= 15 * dt; this.y += this.vy * dt; this.airT += dt;
+      pitchGround = THREE.MathUtils.clamp(Math.atan2(this.vy, Math.max(6, this.speed)) * 0.6, -0.3, 0.3);
+      if (this.y <= gy) {
+        this.y = gy; this.air = false;
+        this.bounceV -= Math.min(4.5, -this.vy * 0.5);
+        if (this.airT > 0.22) this.events.push({ type: 'land', t: this.airT });
+        this.vy = 0; this.justLanded = true;
+      }
+    } else {
+      const groundVy = this.gyPrev === undefined || dt <= 0 ? 0 : (terr - this.gyPrev) / dt;
+      if (this.justLanded) { this.vyGround = groundVy; this.justLanded = false; }
+      // vyGround is the vertical speed the body has settled into; a sudden change in the road's is a crest
+      if (this.vyGround - groundVy > 1.4 && this.speed > 8 && Math.abs(groundVy) < 12) { this.air = true; this.airT = 0; this.vy = this.vyGround; }
+      else { this.y = gy; this.vyGround += (groundVy - this.vyGround) * Math.min(1, dt * 6); }
+    }
+    this.gyPrev = terr;
+    this.slopePitch += (pitchGround - this.slopePitch) * Math.min(1, dt * (this.air ? 3 : 12));
     this.bounceV += (-this.bounce * 120 - this.bounceV * 11) * dt;
     this.bounce += this.bounceV * dt;
     const latAcc = this.yawRate * vf;
@@ -382,9 +404,9 @@ export class Van {
       }
     }
     // hard limits: lake railing and the edge of the map
-    if (this.pos.z < LAKE_Z + 4) { this.pos.z = LAKE_Z + 4; if (this.vel.y < 0) this.vel.y *= -0.2; }
-    this.pos.x = THREE.MathUtils.clamp(this.pos.x, X_WEST - 1.5, X_EAST + 1.5);
-    this.pos.z = Math.min(this.pos.z, Z_SOUTH + 1.5);
+    // edge of the drivable world: railings, cliffs, the backs of blocks
+    if (inBounds(this.pos.x, this.pos.z)) this.lastOk.copy(this.pos);
+    else { this.pos.x = this.lastOk.x; this.pos.z = this.lastOk.z; this.vel.multiplyScalar(-0.15); }
   }
 
   resolve(nx, nz, pen, off) {
@@ -407,6 +429,7 @@ export class Van {
     const m = this.model;
     m.root.position.set(this.pos.x, this.y, this.pos.z);
     m.root.rotation.y = -this.heading;
+    m.root.rotation.z = this.slopePitch;
     m.body.position.y = this.bounce * 0.05;
     m.body.rotation.x = this.roll;
     m.body.rotation.z = this.pitch;

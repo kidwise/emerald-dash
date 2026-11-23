@@ -9,14 +9,16 @@ page.on('pageerror', e => console.log('pageerror:', String(e).slice(0, 400)));
 await page.goto('http://localhost:5173/?' + (process.argv[2] || ''), { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true && window.__app.game', { timeout: 30000 });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-await page.keyboard.press('Enter');
+const district = process.argv[4] || 'slu';
+await page.evaluate((d) => window.__app.game.startShift(d), district);
 const keys = ['KeyW', 'KeyW', 'KeyW', 'KeyA', 'KeyD', 'ShiftLeft', 'KeyS'];
+await page.evaluate((d) => { window.__soakDistrict = d; }, district);
 let held = new Set(['KeyW']); await page.keyboard.down('KeyW');
 for (let t = 0; t < Number(process.argv[3] || 70); t++) {
   for (let k = 0; k < 2; k++) { const key = keys[Math.floor(Math.random() * keys.length)]; if (held.has(key) && key !== 'KeyW') { await page.keyboard.up(key); held.delete(key); } else { await page.keyboard.down(key); held.add(key); } }
   if (Math.random() < 0.5) await page.keyboard.press('Space');
   // keep it moving: if stuck, drop the van somewhere new at a random angle (often straight at parked cars)
-  await page.evaluate(() => { const v = window.__app.game.van; if (v.speed < 2) { const av = [-88, 0, 88][Math.floor(Math.random() * 3)]; v.reset(av + (Math.random() - 0.5) * 8, -230 + Math.random() * 460, Math.random() * 6.28); v.vel.set(Math.cos(v.heading) * 15, Math.sin(v.heading) * 15); } });
+  await page.evaluate(() => { const v = window.__app.game.van; if (v.speed < 2) { const D = window.__soakDistrict; const spots = D === 'downtown' ? [[-440, 360, 780], [-352, 360, 780], [-264, 360, 780], [-176, 360, 780], [-88, 290, 780], [0, 290, 780], [88, 290, 780]] : D === 'center' ? [[-528, 10, 250], [-640, 40, 230], [-300, 255, 270], [-400, -5, 5]] : [[-88, -230, 230], [0, -230, 230], [88, -230, 230]]; const sp = spots[Math.floor(Math.random() * spots.length)]; v.reset(sp[0] + (Math.random() - 0.5) * 8, sp[1] + Math.random() * (sp[2] - sp[1]), Math.random() * 6.28); v.vel.set(Math.cos(v.heading) * 15, Math.sin(v.heading) * 15); } });
   await sleep(1000);
   const shot = await page.screenshot({ clip: { x: 300, y: 150, width: 1200, height: 450 }, encoding: 'binary' });
   const s = await page.evaluate(() => { const g = window.__app.game, v = g.van; return { x: +v.pos.x.toFixed(1), z: +v.pos.z.toFixed(1), y: v.y, mph: Math.round(v.speed * 2.237), h: +v.heading.toFixed(2), bounce: v.bounce, roll: v.roll, score: g.state.score, fps: window.__info().fps, pr: window.__app.renderer.getPixelRatio() }; });

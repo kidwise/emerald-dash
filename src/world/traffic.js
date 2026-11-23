@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AVENUES, STREETS } from '../config.js';
+import { AVENUES, STREETS, isNode, heightAt } from '../config.js';
 import { shadowTex } from './props.js';
 import { makeCarSet, CAR_KINDS, CAR_COLORS } from './cars.js';
 import { rng } from './buildings.js';
@@ -8,24 +8,42 @@ import { rng } from './buildings.js';
 // queue behind each other, brake for the van and the streetcar, and pick a new turn at each junction.
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];      // N, E, S, W as (dx, dz)
 const AVS = [...AVENUES].sort((a, b) => a.x - b.x);   // index i, west -> east
-const NI = AVS.length, NJ = STREETS.length;           // streets: index j, south -> north
+const STS = [...STREETS].sort((a, b) => b.z - a.z);   // index j, south -> north
+const NI = AVS.length, NJ = STS.length;
+
 const right = (d) => [-DIRS[d][1], DIRS[d][0]];
 const alongZ = (d) => d === 0 || d === 2;
-const nodeOk = (i, j) => i >= 0 && i < NI && j >= 0 && j < NJ;
-const stepNode = (i, j, d) => d === 0 ? [i, j + 1] : d === 2 ? [i, j - 1] : d === 1 ? [i + 1, j] : [i - 1, j];
-const crossHW = (i, j, d) => alongZ(d) ? STREETS[j].hw : AVS[i].hw;
+// the next real junction from (i, j) heading d, or null where the road ends
+function next(i, j, d) {
+  if (alongZ(d)) {
+    const a = AVS[i];
+    for (let k = j + (d === 0 ? 1 : -1); k >= 0 && k < NJ; k += d === 0 ? 1 : -1) {
+      if (STS[k].z < a.z0 - 1 || STS[k].z > a.z1 + 1) return null;
+      if (isNode(a, STS[k])) return [i, k];
+    }
+  } else {
+    const st = STS[j];
+    for (let k = i + (d === 1 ? 1 : -1); k >= 0 && k < NI; k += d === 1 ? 1 : -1) {
+      if (AVS[k].x < st.x0 - 1 || AVS[k].x > st.x1 + 1) return null;
+      if (isNode(AVS[k], st)) return [k, j];
+    }
+  }
+  return null;
+}
+const crossHW = (i, j, d) => alongZ(d) ? STS[j].hw : AVS[i].hw;
 // lane centre offset from the road's centre line
 function laneOff(i, j, d, lane) {
-  if (alongZ(d)) return AVS[i].x === 0 ? 1.9 : 2.9;
-  return STREETS[j].hw > 9 ? (lane ? 5.4 : 1.9) : 2.4;
+  const road = alongZ(d) ? AVS[i] : STS[j];
+  if (road.hw <= 9) return (road.hw - 2.2) / 2;
+  return alongZ(d) ? 1.9 : (lane ? 5.4 : 1.9);
 }
 function exitPoint(i, j, d, lo) {
   const r = right(d), k = crossHW(i, j, d) + 2;
-  return new THREE.Vector2(AVS[i].x + DIRS[d][0] * k + r[0] * lo, STREETS[j].z + DIRS[d][1] * k + r[1] * lo);
+  return new THREE.Vector2(AVS[i].x + DIRS[d][0] * k + r[0] * lo, STS[j].z + DIRS[d][1] * k + r[1] * lo);
 }
 function stopPoint(i, j, d, lo) {
   const r = right(d), k = crossHW(i, j, d) + 8.6;
-  return new THREE.Vector2(AVS[i].x - DIRS[d][0] * k + r[0] * lo, STREETS[j].z - DIRS[d][1] * k + r[1] * lo);
+  return new THREE.Vector2(AVS[i].x - DIRS[d][0] * k + r[0] * lo, STS[j].z - DIRS[d][1] * k + r[1] * lo);
 }
 
 function lineSeg(p0, p1) { return { bez: false, p0, p1, len: Math.max(0.01, p0.distanceTo(p1)) }; }
@@ -42,7 +60,7 @@ function evalSeg(seg, s, out) {
   out.h = Math.atan2(2 * u * (c.y - p0.y) + 2 * t * (p1.y - c.y), 2 * u * (c.x - p0.x) + 2 * t * (p1.x - c.x));
 }
 
-export function createTraffic(signals, streetcar, colliders, count = 24) {
+export function createTraffic(signals, streetcar, colliders, count = 46) {
   const r = rng(51515);
   const group = new THREE.Group();
   const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, color: 0x000000, opacity: 0.85 });
@@ -50,8 +68,9 @@ export function createTraffic(signals, streetcar, colliders, count = 24) {
   const cars = [];
   for (let n = 0; n < count; n++) {
     // start somewhere along a random approach to a random junction
-    let i, j, d, pi, pj;
-    do { i = Math.floor(r() * NI); j = Math.floor(r() * NJ); d = Math.floor(r() * 4); [pi, pj] = stepNode(i, j, (d + 2) % 4); } while (!nodeOk(pi, pj));
+    let i, j, d, prev;
+    do { i = Math.floor(r() * NI); j = Math.floor(r() * NJ); d = Math.floor(r() * 4); prev = isNode(AVS[i], STS[j]) ? next(i, j, (d + 2) % 4) : null; } while (!prev);
+    const [pi, pj] = prev;
     const lane = r() < 0.4 ? 1 : 0;
     const lo = laneOff(i, j, d, lane);
     const seg = lineSeg(exitPoint(pi, pj, d, lo), stopPoint(i, j, d, lo));
@@ -82,7 +101,7 @@ export function createTraffic(signals, streetcar, colliders, count = 24) {
   group.add(shadows);
   for (const c of cars) colliders.push(c.collider);
 
-  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0), ZA = new THREE.Vector3(0, 0, 1), Q2 = new THREE.Quaternion(), C = new THREE.Color();
   const events = [];
 
   // how much clear road there is ahead of a car before the thing at (ox, oz)
@@ -138,17 +157,18 @@ export function createTraffic(signals, streetcar, colliders, count = 24) {
           else {
             // choose straight / right / left from what the grid allows
             const opts = [];
-            for (const [nd, w] of [[c.d, 5], [(c.d + 1) % 4, 2.5], [(c.d + 3) % 4, 2]]) { const [ni, nj] = stepNode(c.i, c.j, nd); if (nodeOk(ni, nj)) opts.push([nd, w]); }
+            for (const [nd, w] of [[c.d, 5], [(c.d + 1) % 4, 2.5], [(c.d + 3) % 4, 2]]) if (next(c.i, c.j, nd)) opts.push([nd, w]);
+            if (!opts.length) opts.push([(c.d + 2) % 4, 1]);
             let pick = Math.random() * opts.reduce((a, o) => a + o[1], 0), nd = opts[0][0];
             for (const o of opts) { pick -= o[1]; if (pick <= 0) { nd = o[0]; break; } }
             c.nextD = nd; c.lane = Math.random() < 0.4 ? 1 : 0;
-            const [ni, nj] = stepNode(c.i, c.j, nd);
+            const [ni, nj] = next(c.i, c.j, nd);
             const p0 = c.seg.p1, p1 = exitPoint(c.i, c.j, nd, laneOff(ni, nj, nd, c.lane));
             c.seg = nd === c.d ? lineSeg(p0, p1) : bezSeg(p0, alongZ(c.d) ? new THREE.Vector2(p0.x, p1.y) : new THREE.Vector2(p1.x, p0.y), p1);
             c.s = 0; c.crossing = true;
           }
         } else {
-          const [ni, nj] = stepNode(c.i, c.j, c.nextD);
+          const [ni, nj] = next(c.i, c.j, c.nextD);
           c.i = ni; c.j = nj; c.d = c.nextD;
           c.seg = lineSeg(c.seg.p1, stopPoint(ni, nj, c.d, laneOff(ni, nj, c.d, c.lane)));
           c.s = 0; c.crossing = false;
@@ -174,15 +194,18 @@ export function createTraffic(signals, streetcar, colliders, count = 24) {
     let si = 0;
     for (const set of sets) {
       set.list.forEach((c, n) => {
-        Q.setFromAxisAngle(UP, -c.h);
-        M.compose(V.set(c.x, 0, c.z), Q, S1);
+        const cx = Math.cos(c.h), cz = Math.sin(c.h);
+        c.y = heightAt(c.x, c.z);
+        const pitch = Math.atan((heightAt(c.x + cx * 1.4, c.z + cz * 1.4) - heightAt(c.x - cx * 1.4, c.z - cz * 1.4)) / 2.8);
+        Q.setFromAxisAngle(UP, -c.h); if (pitch) Q.multiply(Q2.setFromAxisAngle(ZA, pitch));
+        M.compose(V.set(c.x, c.y, c.z), Q, S1); c.M = c.M || new THREE.Matrix4(); c.M.copy(M);
         set.set.setMatrixAt(n, M);
         set.tail.setColorAt(n, c.braking ? C.setRGB(14, 0.35, 0.2) : C.setRGB(3.2, 0.08, 0.05));
       });
       set.set.commit();
       if (set.tail.instanceColor) set.tail.instanceColor.needsUpdate = true;
     }
-    for (const c of cars) { Q.setFromAxisAngle(UP, -c.h); M.compose(V.set(c.x, 0.02, c.z), Q, S1); shadows.setMatrixAt(si++, M); }
+    for (const c of cars) { M.copy(c.M); M.elements[13] += 0.02; shadows.setMatrixAt(si++, M); }
     shadows.instanceMatrix.needsUpdate = true;
     return events;
   }

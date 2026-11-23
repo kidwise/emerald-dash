@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { GLSL_NOISE, GLSL_LAMPS } from '../gfx/glsl.js';
-import { cityBlocks, CURB, FOG_COLOR, FOG_DENSITY, Z_NORTH, LAKE_Z } from '../config.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLSL_NOISE, GLSL_LAMPS, GLSL_SKY } from '../gfx/glsl.js';
+import { cityCells, CURB, FOG_COLOR, FOG_DENSITY, Z_NORTH, LAKE_Z, HILL_Z, hillF, heightAt, WESTLAKE_INDEX, BRICK_INDEX } from '../config.js';
 
 const VERT = /* glsl */`
 varying vec3 vWPos;
@@ -16,6 +17,8 @@ const FRAG = /* glsl */`
 uniform sampler2D tReflect;
 uniform mat4 uReflectMatrix;
 uniform float uTime;
+uniform float uPlaneY;
+uniform float uRain;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
 uniform vec3 uAmbient;
@@ -27,6 +30,7 @@ varying vec3 vWPos;
 varying vec3 vN;
 ${GLSL_NOISE}
 ${GLSL_LAMPS}
+${GLSL_SKY}
 
 const float PARK_WATER_Z = ${(LAKE_Z + 2.6).toFixed(1)};
 float band(float x, float c, float hw){ float w = fwidth(x) * 0.75; return 1.0 - smoothstep(hw - w, hw + w, abs(x - c)); }
@@ -86,9 +90,10 @@ void main(){
 
   float avD = 1e4, avC = 0.0, avHW = 0.0; int avI = 0;
   float stD = 1e4, stC = 0.0, stHW = 0.0; int stI = 0;
-  for (int i = 0; i < N_AV; i++) { float c = p.x - AVX[i]; float d = abs(c) - AVHW[i]; if (d < avD) { avD = d; avC = c; avHW = AVHW[i]; avI = i; } }
-  for (int j = 0; j < N_ST; j++) { float c = p.y - STZ[j]; float d = abs(c) - STHW[j]; if (d < stD) { stD = d; stC = c; stHW = STHW[j]; stI = j; } }
-  if (p.y < Z_NORTH) avD = 1e4;
+  for (int i = 0; i < N_AV; i++) { if (p.y < AVZ0[i] || p.y > AVZ1[i]) continue; float c = p.x - AVX[i]; float d = abs(c) - AVHW[i]; if (d < avD) { avD = d; avC = c; avHW = AVHW[i]; avI = i; } }
+  for (int j = 0; j < N_ST; j++) { if (p.x < STX0[j] || p.x > STX1[j]) continue; float c = p.y - STZ[j]; float d = abs(c) - STHW[j]; if (d < stD) { stD = d; stC = c; stHW = STHW[j]; stI = j; } }
+  // water runs off the hills: standing puddles only on level ground
+  float level = 1.0 - smoothstep(0.02, 0.07, abs(terrainH(p + vec2(1.0, 0.0)) - terrainH(p - vec2(1.0, 0.0))) * 0.5);
 
   float detail = 1.0 / (1.0 + dist * 0.02);
   float nLow = fbm(p * 0.085 + 3.1);
@@ -111,13 +116,13 @@ void main(){
   bool inAv = avD < 0.0, inSt = stD < 0.0;
   if (inAv && !inSt) kerb = -avD; else if (inSt && !inAv) kerb = -stD;
   float gutter = smoothstep(1.9, 0.15, kerb);
-  puddle = smoothstep(0.50, 0.60, nLow + gutter * 0.16 * (0.5 + nMid));
+  puddle = smoothstep(0.50, 0.60, nLow + gutter * 0.16 * (0.5 + nMid)) * level;
   rough = mix(0.34, 0.02, puddle);
   bump = mix(0.55, 0.0, puddle);
   reflK = mix(0.55, 1.0, puddle);
 
   vec4 paint = vec4(0.0);
-  if (inAv && !inSt) paint = roadPaint(avC, p.y, avHW, stD, avI == 1 ? 1.0 : 0.0);
+  if (inAv && !inSt) paint = roadPaint(avC, p.y, avHW, stD, avI == ${WESTLAKE_INDEX} ? 1.0 : 0.0);
   else if (inSt && !inAv) paint = roadPaint(stC, p.x, stHW, avD, 1.0 - step(9.0, stHW) * 1.0);
   float wear = smoothstep(0.18, 0.5, nMid * 0.6 + nHi * 0.4 + 0.12);
   paint.a *= wear;
@@ -125,7 +130,16 @@ void main(){
   rough = mix(rough, max(rough, 0.2), paint.a);
 
   // streetcar track slab + rails on Westlake
-  if (avI == 1 && avD < 0.0) {
+  if (avI == ${BRICK_INDEX} && avD < 0.0) {
+    // Pike Place: worn red brick paving
+    vec2 bq = p / vec2(0.11, 0.22); bq.y += 0.5 * mod(floor(bq.x), 2.0);
+    vec2 bf = fract(bq); float bw = fwidth(bq.x) + fwidth(bq.y);
+    float mortar = (1.0 - smoothstep(0.04 + bw, 0.09 + bw, min(min(bf.x, 1.0 - bf.x), min(bf.y, 1.0 - bf.y)))) / (1.0 + bw * 3.0);
+    vec3 brick = vec3(0.16, 0.055, 0.04) * (0.7 + 0.6 * hash12(floor(bq)) * detail + 0.3 * (1.0 - detail)) * (0.8 + 0.4 * nLow);
+    albedo = mix(albedo, brick * (1.0 - 0.5 * mortar), 1.0 - paint.a * 0.85);
+    rough = mix(0.30, 0.03, puddle); bump = 0.7 * (1.0 - puddle);
+  }
+  if (avI == ${WESTLAKE_INDEX} && avD < 0.0 && p.y < 252.0) {
     float tc = abs(abs(avC) - 5.2);
     float slab = 1.0 - smoothstep(1.48, 1.52, tc);
     vec2 sj = fract(vec2(avC, p.y) / vec2(1.5, 3.0));
@@ -189,7 +203,7 @@ void main(){
   vec2 grad = vec2(nx - n0, nz - n0) * detail;
   float m0 = vnoise(p * 2.3), mx = vnoise((p + vec2(0.15, 0.0)) * 2.3), mz = vnoise((p + vec2(0.0, 0.15)) * 2.3);
   vec2 grad2 = vec2(mx - m0, mz - m0);
-  vec2 rip = ripple(p, uTime) * puddle * 0.05 * smoothstep(70.0, 12.0, dist);
+  vec2 rip = ripple(p, uTime) * puddle * 0.05 * smoothstep(70.0, 12.0, dist) * uRain;
   vec2 tilt = (grad * 0.26 + grad2 * 0.10) * bump + rip;
   if (vN.y > 0.5) N = normalize(vec3(-tilt.x, 1.0, -tilt.y));
 
@@ -202,6 +216,22 @@ void main(){
     float kx = floor(P.x / 22.0 + 0.5) * 22.0;
     for (int o = -1; o <= 1; o++) { float lx = kx + float(o) * 22.0; if (abs(lx) < 200.0) light += LAMP_COLOR * lampFall(P, vec3(lx, 5.2, PARK_WATER_Z)) * 6.0; }
     for (int j = 0; j < 4; j++) { float lz = Z_NORTH - 12.0 - 22.0 * float(j); light += LAMP_COLOR * (lampFall(P, vec3(-5.6, 5.2, lz)) + lampFall(P, vec3(5.6, 5.2, lz))) * 6.0; }
+  }
+#endif
+#if MODE == 1
+  if (P.x < -536.0 && P.z > 0.0 && P.z < 262.0) {
+    // Seattle Center: pedestrian lamps on a 44 m grid
+    vec2 b = floor((P.xz - vec2(-730.0, 30.0)) / 44.0 + 0.5);
+    for (int ox = -1; ox <= 1; ox++) for (int oz = -1; oz <= 1; oz++) {
+      vec2 k = b + vec2(float(ox), float(oz));
+      if (k.x < 0.0 || k.x > 4.0 || k.y < 0.0 || k.y > 5.0) continue;
+      light += LAMP_COLOR * lampFall(P, vec3(-730.0 + k.x * 44.0, 6.2, 30.0 + k.y * 44.0)) * 9.0;
+    }
+  }
+  if (P.x < -452.0 && P.z > 345.0) {
+    // Pike Place deck lamps
+    float kd = floor(P.z / 22.0 + 0.5);
+    for (int o = -1; o <= 1; o++) light += LAMP_COLOR * lampFall(P, vec3(-512.0, hillF(-512.0) + 5.3, (kd + float(o)) * 22.0)) * 7.0;
   }
 #endif
   for (int i = 0; i < 12; i++) {
@@ -220,7 +250,7 @@ void main(){
   // ---------------- mirror-like wet reflection ----------------
   float NdV = clamp(dot(N, V), 0.0, 1.0);
   float fres = 0.035 + 0.965 * pow(1.0 - NdV, 5.0);
-  vec4 rc = uReflectMatrix * vec4(P.x, 0.0, P.z, 1.0);
+  vec4 rc = uReflectMatrix * vec4(P.x, uPlaneY, P.z, 1.0);
   vec2 ruv = rc.xy / rc.w + N.xz * 0.07;
   float lod = rough * 9.0;
   vec3 refl = vec3(0.0); float wsum = 0.0;
@@ -230,6 +260,11 @@ void main(){
     refl += min(textureLod(tReflect, ruv + o, lod).rgb, vec3(48.0)) * w; wsum += w;
   }
   refl /= wsum;
+  // the mirror image is only valid on ground level with the mirror plane; elsewhere reflect the sky
+  float onPlane = 1.0 - smoothstep(0.45, 0.9, abs(P.y - uPlaneY));
+  vec3 Rv = reflect(-V, N);
+  vec3 skyR = skyColor(normalize(vec3(Rv.x, abs(Rv.y) + 0.03, Rv.z)), uTime) * 1.5 + LAMP_COLOR * lampSum(P + vec3(Rv.x, 0.0, Rv.z) * 9.0) * 0.5;
+  refl = mix(skyR, refl, onPlane);
   col += refl * fres * reflK * 1.6;
 
   float fogF = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
@@ -238,22 +273,37 @@ void main(){
 }`;
 
 function roundedRect(x0, x1, z0, z1, r) {
+  // r = corner radii [NW, NE, SE, SW]; shape y = -z (the extrusion is rotated to lie flat)
+  const [rnw, rne, rse, rsw] = Array.isArray(r) ? r : [r, r, r, r];
   const s = new THREE.Shape();
-  // shape y = -z (the extrusion is rotated to lie flat)
   const y0 = -z1, y1 = -z0;
-  s.moveTo(x0 + r, y0);
-  s.lineTo(x1 - r, y0); s.quadraticCurveTo(x1, y0, x1, y0 + r);
-  s.lineTo(x1, y1 - r); s.quadraticCurveTo(x1, y1, x1 - r, y1);
-  s.lineTo(x0 + r, y1); s.quadraticCurveTo(x0, y1, x0, y1 - r);
-  s.lineTo(x0, y0 + r); s.quadraticCurveTo(x0, y0, x0 + r, y0);
+  s.moveTo(x0 + rsw, y0);
+  s.lineTo(x1 - rse, y0); if (rse) s.quadraticCurveTo(x1, y0, x1, y0 + rse);
+  s.lineTo(x1, y1 - rne); if (rne) s.quadraticCurveTo(x1, y1, x1 - rne, y1);
+  s.lineTo(x0 + rnw, y1); if (rnw) s.quadraticCurveTo(x0, y1, x0, y1 - rnw);
+  s.lineTo(x0, y0 + rsw); if (rsw) s.quadraticCurveTo(x0, y0, x0 + rsw, y0);
   return s;
+}
+function slab(x0, x1, z0, z1, r, hill) {
+  const g = new THREE.ExtrudeGeometry(roundedRect(x0, x1, z0, z1, r), { depth: CURB, bevelEnabled: false, curveSegments: 4 }).rotateX(-Math.PI / 2);
+  if (hill) { const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, p.getY(i) + hillF(p.getX(i))); g.computeVertexNormals(); }
+  return g;
+}
+// flat quad or, with xs given, a strip that follows the hill profile
+function patch(x0, x1, z0, z1, xs) {
+  const cols = xs || [x0, x1];
+  const pos = [], idx = [];
+  cols.forEach((x, i) => { const y = xs ? hillF(x) : 0; pos.push(x, y, z0, x, y, z1); if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 3, a, a + 3, a + 2); } });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
 }
 
 export function createGround(reflection) {
   const shared = {
     tReflect: { value: reflection.rt.texture },
     uReflectMatrix: { value: reflection.textureMatrix },
-    uTime: { value: 0 },
+    uTime: { value: 0 }, uPlaneY: { value: 0 }, uRain: { value: 1 },
     uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) },
     uFogDensity: { value: FOG_DENSITY },
     uAmbient: { value: new THREE.Color(0.20, 0.30, 0.50) },
@@ -267,13 +317,26 @@ export function createGround(reflection) {
   });
 
   const group = new THREE.Group();
-  const road = new THREE.Mesh(new THREE.PlaneGeometry(1700, 1400).rotateX(-Math.PI / 2), mk(0));
-  road.position.set(0, 0, 80);
+  // road surface: level everywhere except the downtown hill, which gets its own stepped strip
+  const hillXs = [-520, -448];
+  for (let k = 0; k < 4; k++) hillXs.push(-432 + 88 * k, -360 + 88 * k);
+  hillXs.push(-96);
+  const road = new THREE.Mesh(mergeGeometries([
+    patch(-1500, 900, -1100, HILL_Z), patch(-96, 900, HILL_Z, 1500), patch(-520, -96, HILL_Z, 1500, hillXs),
+  ]), mk(0));
+  road.frustumCulled = false;
   group.add(road);
 
-  const shapes = cityBlocks().map(b => roundedRect(b.x0, b.x1, b.z0, b.z1, 4.5));
-  const slabGeo = new THREE.ExtrudeGeometry(shapes, { depth: CURB, bevelEnabled: false, curveSegments: 5 }).rotateX(-Math.PI / 2);
-  const slabs = new THREE.Mesh(slabGeo, mk(1));
+  const geos = [];
+  for (const c of cityCells()) {
+    if (c.kind === 'bay') continue;
+    const R = 4.5, r = c.roads;
+    geos.push(slab(c.x0, c.x1, c.z0, c.z1, [r.n && r.w ? R : 0, r.n && r.e ? R : 0, r.s && r.e ? R : 0, r.s && r.w ? R : 0], c.hill));
+    // north sidewalk of Lenora St: it slopes with the street while the block above stays level
+    if (c.cliff && c.x0 >= -440) geos.push(slab(c.x0, c.x1, HILL_Z, 345, [0, 0, r.e ? R : 0, r.w ? R : 0], true));
+  }
+  const slabs = new THREE.Mesh(mergeGeometries(geos), mk(1));
+  slabs.frustumCulled = false;
   group.add(slabs);
 
   const parkShape = roundedRect(-420, 420, LAKE_Z, Z_NORTH, 2);
@@ -282,5 +345,6 @@ export function createGround(reflection) {
   group.add(park);
 
   group.traverse(o => o.layers.set(1));
+  void heightAt;
   return { group, uniforms: shared };
 }

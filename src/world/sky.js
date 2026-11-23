@@ -3,7 +3,7 @@ import { GLSL_NOISE, GLSL_SKY } from '../gfx/glsl.js';
 
 // Camera-centred sky dome. Also baked into the image-based lighting environment.
 export function createSky() {
-  const uniforms = { uTime: { value: 0 }, uCityLights: { value: 0 } };
+  const uniforms = { uTime: { value: 0 }, uCityLights: { value: 0 }, uClear: { value: 0 } };
   const mat = new THREE.ShaderMaterial({
     uniforms,
     side: THREE.BackSide,
@@ -20,12 +20,26 @@ export function createSky() {
     fragmentShader: /* glsl */`
       uniform float uTime;
       uniform float uCityLights;
+      uniform float uClear;
       varying vec3 vDir;
       ${GLSL_NOISE}
       ${GLSL_SKY}
       void main(){
         vec3 d = normalize(vDir);
         vec3 col = skyColor(d, uTime);
+        if (uClear > 0.0) {
+          // clear evening: no cloud deck, a long band of afterglow in the west
+          float h = max(d.y, 0.0);
+          float az = max(dot(normalize(d.xz + 1e-5), SUN_XZ), 0.0);
+          vec3 clr = mix(vec3(0.10, 0.16, 0.30), vec3(0.012, 0.03, 0.10), pow(h, 0.5));
+          clr += vec3(1.25, 0.50, 0.16) * pow(az, 2.5) * exp(-h * 5.0) * 0.9 + vec3(0.9, 0.3, 0.45) * pow(az, 1.2) * exp(-h * 2.6) * 0.22;
+          float wisps = smoothstep(0.55, 0.8, fbm(d.xz / (h + 0.2) * vec2(0.5, 2.2) + 4.0)) * exp(-h * 3.0);
+          clr += vec3(1.0, 0.45, 0.25) * wisps * 0.25 * (0.3 + az);
+          float stars = step(0.9985, hash12(floor(d.xz / (h + 0.3) * 260.0))) * smoothstep(0.15, 0.5, h);
+          clr += stars * 0.9;
+          if (d.y < 0.0) clr = mix(clr, vec3(0.012, 0.016, 0.026), smoothstep(0.0, -0.12, d.y));
+          col = mix(col, clr, uClear);
+        }
         // Only in the lighting bake: a ring of fake city lights so glossy things sparkle.
         if (uCityLights > 0.5) {
           float az = atan(d.z, d.x);

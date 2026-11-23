@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { AVENUES, STREETS, CURB, LAMP_H, lampSites, Z_NORTH, Z_SOUTH, X_WEST, X_EAST, FOG_DENSITY } from '../config.js';
+import { AVENUES, STREETS, CURB, LAMP_H, lampSites, Z_NORTH, X_WEST, X_EAST, FOG_DENSITY, heightAt, HILL_Z, isNode } from '../config.js';
 import { rng } from './buildings.js';
 import { makeCarSet, CAR_KINDS, CAR_COLORS } from './cars.js';
+import { CAMPUS } from '../config.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3(), tmpS = new THREE.Vector3(1, 1, 1);
@@ -65,6 +66,24 @@ export function createGlowPoints(positions, colors, sizes, phases, opts = {}) {
 }
 
 // ---------------------------------------------------------------- street lamps
+// Static instanced props are split into map tiles so far-away tiles can be skipped entirely.
+export const CHUNK = 264;
+export const chunks = [];      // { objs: [Object3D], x, z }
+export function byChunk(items) {
+  const map = new Map();
+  for (const it of items) {
+    const key = `${Math.floor(it.x / CHUNK)},${Math.floor(it.z / CHUNK)}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(it);
+  }
+  return [...map.values()];
+}
+export function registerChunk(list, objs) {
+  const x = list.reduce((a, i) => a + i.x, 0) / list.length, z = list.reduce((a, i) => a + i.z, 0) / list.length;
+  for (const o of objs) { o.frustumCulled = true; if (o.computeBoundingSphere) o.computeBoundingSphere(); }
+  chunks.push({ objs, x, z });
+}
+
 export function createLamps(obstacles) {
   const sites = lampSites();
   const pole = mergeGeometries([
@@ -73,24 +92,9 @@ export function createLamps(obstacles) {
     box(2.3, 0.09, 0.09, 1.1, LAMP_H - 0.05, 0),
     box(0.9, 0.12, 0.34, 2.15, LAMP_H - 0.02, 0),
   ]);
-  const poles = new THREE.InstancedMesh(pole, darkMetal, sites.length);
-  const lens = new THREE.InstancedMesh(box(0.78, 0.04, 0.26, 2.15, LAMP_H - 0.1, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 6.2, 3.4) }), sites.length);
-  const pos = [], col = [], size = [], ph = [];
-  sites.forEach((s, i) => {
-    tmpQ.setFromAxisAngle(UP, Math.atan2(-s.dirZ, s.dirX));
-    tmpM.compose(tmpV.set(s.x, CURB, s.z), tmpQ, tmpS);
-    poles.setMatrixAt(i, tmpM); lens.setMatrixAt(i, tmpM);
-    pos.push(s.x + s.dirX * 2.15, LAMP_H + CURB - 0.2, s.z + s.dirZ * 2.15);
-    col.push(1.0, 0.62, 0.30); size.push(3.3); ph.push(i * 0.37);
-    obstacles.push({ x: s.x, z: s.z, r: 0.28 });
-  });
-  const halo = createGlowPoints(pos, col, size, ph, { twinkle: 0.0 });
-  halo.points.material.uniforms.uScale.value = 700;
-  const group = new THREE.Group();
-  group.add(poles, lens, halo.points);
-
-  // soft light cones in the wet air under each lamp
-  const coneGeo = new THREE.ConeGeometry(4.6, LAMP_H - 0.3, 20, 1, true).translate(0, (LAMP_H - 0.3) / 2, 0);
+  const lensGeo = box(0.78, 0.04, 0.26, 2.15, LAMP_H - 0.1, 0);
+  const lensMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 6.2, 3.4) });
+  const coneGeo = new THREE.ConeGeometry(4.6, LAMP_H - 0.3, 16, 1, true).translate(0, (LAMP_H - 0.3) / 2, 0);
   const coneMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     uniforms: { uFog: { value: FOG_DENSITY } },
@@ -114,14 +118,26 @@ export function createLamps(obstacles) {
         gl_FragColor = vec4(vec3(1.0, 0.66, 0.36) * a, 1.0);
       }`,
   });
-  const cones = new THREE.InstancedMesh(coneGeo, coneMat, sites.length);
-  sites.forEach((s, i) => {
-    tmpM.compose(tmpV.set(s.x + s.dirX * 2.15, CURB, s.z + s.dirZ * 2.15), tmpQ.identity(), tmpS);
-    cones.setMatrixAt(i, tmpM);
-  });
-  cones.layers.set(1); cones.frustumCulled = false;
-  poles.frustumCulled = lens.frustumCulled = false;
-  group.add(cones);
+  const group = new THREE.Group();
+  const pos = [], col = [], size = [], ph = [];
+  for (const list of byChunk(sites)) {
+    const poles = new THREE.InstancedMesh(pole, darkMetal, list.length), lens = new THREE.InstancedMesh(lensGeo, lensMat, list.length), cones = new THREE.InstancedMesh(coneGeo, coneMat, list.length);
+    list.forEach((s, i) => {
+      tmpQ.setFromAxisAngle(UP, Math.atan2(-s.dirZ, s.dirX));
+      tmpM.compose(tmpV.set(s.x, s.y + CURB, s.z), tmpQ, tmpS);
+      poles.setMatrixAt(i, tmpM); lens.setMatrixAt(i, tmpM);
+      tmpM.compose(tmpV.set(s.x + s.dirX * 2.15, s.y + CURB, s.z + s.dirZ * 2.15), tmpQ.identity(), tmpS);
+      cones.setMatrixAt(i, tmpM);
+      pos.push(s.x + s.dirX * 2.15, s.y + LAMP_H + CURB - 0.2, s.z + s.dirZ * 2.15);
+      col.push(1.0, 0.62, 0.30); size.push(3.3); ph.push(i * 0.37);
+      obstacles.push({ x: s.x, z: s.z, r: 0.28 });
+    });
+    cones.layers.set(1);
+    group.add(poles, lens, cones);
+    registerChunk(list, [poles, lens, cones]);
+  }
+  const halo = createGlowPoints(pos, col, size, ph, { twinkle: 0.0 });
+  group.add(halo.points);
   return { group, sites, halo };
 }
 
@@ -161,44 +177,54 @@ export function createTrees(obstacles) {
   const spots = [];
   const okAlong = (v) => { const m = ((v % 88) + 88) % 88; return m > 16 && m < 72; };
   for (const a of AVENUES) {
-    for (let z = Z_NORTH + 11; z < Z_SOUTH; z += 22) {
+    for (let z = Math.ceil((a.z0 - 11) / 22) * 22 + 11; z < a.z1; z += 22) {
       if (!okAlong(z)) continue;
-      for (const s of [-1, 1]) spots.push([a.x + s * (a.hw + 1.7), z]);
+      for (const s of [-1, 1]) if (r() < 0.85) spots.push([a.x + s * (a.hw + 1.7), z]);
     }
   }
   for (const st of STREETS) {
     if (st.z < Z_NORTH + 20) continue;
-    for (let x = X_WEST + 19; x < X_EAST; x += 22) {
+    for (let x = Math.ceil((Math.max(st.x0, -540) - 11) / 22) * 22 + 11; x < Math.min(st.x1, 106); x += 22) {
       if (!okAlong(x)) continue;
-      for (const s of [-1, 1]) if (r() < 0.75) spots.push([x, st.z + s * (st.hw + 1.7)]);
+      for (const s of [-1, 1]) if (r() < 0.6) spots.push([x, st.z + s * (st.hw + 1.7)]);
     }
   }
   // the park promenade
   for (let z = Z_NORTH - 18; z > Z_NORTH - 92; z -= 12) for (const s of [-1, 1]) spots.push([s * 7.5, z]);
+  // Seattle Center lawns: scattered, clear of the Needle, the fountain and the glasshouse
+  for (let n = 0; n < 60; n++) {
+    const x = CAMPUS.x0 + 10 + r() * (CAMPUS.x1 - CAMPUS.x0 - 20), z = CAMPUS.z0 + 10 + r() * (CAMPUS.z1 - CAMPUS.z0 - 20);
+    if (Math.hypot(x + 640, z - 92) < 30 || Math.hypot(x + 700, z - 50) < 22 || (Math.abs(x + 590) < 30 && Math.abs(z - 195) < 40) || (x < -685 && z > 200)) continue;
+    spots.push([x, z]);
+  }
 
   const bark = new THREE.MeshStandardMaterial({ color: 0x0c0a09, roughness: 0.9 });
   const group = new THREE.Group();
-  const meshes = variants.map(v => new THREE.InstancedMesh(v.geo, bark, spots.length));
-  const counts = [0, 0, 0];
   const pos = [], col = [], size = [], ph = [];
   const palettes = [[[1.0, 0.72, 0.36]], [[1.0, 0.72, 0.36]], [[1.0, 0.72, 0.36]], [[0.75, 0.88, 1.0]], [[1.0, 0.25, 0.2], [0.25, 1.0, 0.4], [0.3, 0.5, 1.0], [1.0, 0.75, 0.2]]];
-  spots.forEach(([x, z], i) => {
-    const vi = Math.floor(r() * 3) % 3; const v = variants[vi];
-    const rot = r() * 6.28, sc = 0.9 + r() * 0.35;
-    tmpQ.setFromAxisAngle(UP, rot);
-    tmpM.compose(tmpV.set(x, CURB, z), tmpQ, new THREE.Vector3(sc, sc, sc));
-    meshes[vi].setMatrixAt(counts[vi]++, tmpM);
-    const pal = palettes[Math.floor(r() * palettes.length) % palettes.length];
-    const tp = r() * 10;
-    for (let k = 0; k < v.lights.length; k += 3) {
-      tmpV.set(v.lights[k], v.lights[k + 1], v.lights[k + 2]).applyMatrix4(tmpM);
-      pos.push(tmpV.x, tmpV.y, tmpV.z);
-      const c = pal[Math.floor(r() * pal.length) % pal.length];
-      col.push(c[0] * 2.6, c[1] * 2.6, c[2] * 2.6); size.push(0.085); ph.push(tp + r());
+  const placed = spots.map(([x, z]) => ({ x, z, y: heightAt(x, z) + CURB, vi: Math.floor(r() * 3) % 3, rot: r() * 6.28, sc: 0.9 + r() * 0.35 }));
+  for (const list of byChunk(placed)) {
+    const meshes = variants.map(v => new THREE.InstancedMesh(v.geo, bark, list.length));
+    const counts = [0, 0, 0];
+    for (const t of list) {
+      const v = variants[t.vi];
+      tmpQ.setFromAxisAngle(UP, t.rot);
+      tmpM.compose(tmpV.set(t.x, t.y, t.z), tmpQ, new THREE.Vector3(t.sc, t.sc, t.sc));
+      meshes[t.vi].setMatrixAt(counts[t.vi]++, tmpM);
+      const pal = palettes[Math.floor(r() * palettes.length) % palettes.length];
+      const tp = r() * 10;
+      for (let k = 0; k < v.lights.length; k += 3) {
+        tmpV.set(v.lights[k], v.lights[k + 1], v.lights[k + 2]).applyMatrix4(tmpM);
+        pos.push(tmpV.x, tmpV.y, tmpV.z);
+        const c = pal[Math.floor(r() * pal.length) % pal.length];
+        col.push(c[0] * 2.6, c[1] * 2.6, c[2] * 2.6); size.push(0.085); ph.push(tp + r());
+      }
+      obstacles.push({ x: t.x, z: t.z, r: 0.24 });
     }
-    obstacles.push({ x, z, r: 0.24 });
-  });
-  meshes.forEach((m, i) => { m.count = counts[i]; m.frustumCulled = false; group.add(m); });
+    const live = meshes.filter((m, i) => { m.count = counts[i]; return counts[i] > 0; });
+    group.add(...live);
+    registerChunk(list, live);
+  }
   const lights = createGlowPoints(pos, col, size, ph, { twinkle: 0.3 });
   group.add(lights.points);
   return { group, lights, spots };
@@ -216,6 +242,7 @@ export function createSignals() {
     lens(set.r, x + fx, y + 0.34, z + fz, ry); lens(set.y, x + fx, y, z + fz, ry); lens(set.g, x + fx, y - 0.34, z + fz, ry);
   };
   for (const a of AVENUES) for (const s of STREETS) {
+    if (!isNode(a, s)) continue;
     const H = 6.6;
     const corners = [
       // [pole x, pole z, arm dx, arm dz, arm length, facing ry, set]
@@ -226,10 +253,11 @@ export function createSignals() {
     ];
     for (const [px, pz, dx, dz, len, ry, set] of corners) {
       if (pz < Z_NORTH - 2) continue;
-      geos.push(new THREE.CylinderGeometry(0.1, 0.14, H, 8).translate(px, CURB + H / 2, pz));
-      geos.push(box(dx ? len : 0.12, 0.12, dz ? len : 0.12, px + dx * len / 2, CURB + H - 0.15, pz + dz * len / 2));
-      head(px + dx * len, CURB + H - 0.75, pz + dz * len, ry, set);
-      head(px + dx * 0.02 + Math.sin(ry) * 0.3, CURB + 3.1, pz + Math.cos(ry) * 0.3, ry, set);   // pole-mounted repeater
+      const gy = heightAt(a.x, s.z) + CURB;
+      geos.push(new THREE.CylinderGeometry(0.1, 0.14, H, 8).translate(px, gy + H / 2, pz));
+      geos.push(box(dx ? len : 0.12, 0.12, dz ? len : 0.12, px + dx * len / 2, gy + H - 0.15, pz + dz * len / 2));
+      head(px + dx * len, gy + H - 0.75, pz + dz * len, ry, set);
+      head(px + dx * 0.02 + Math.sin(ry) * 0.3, gy + 3.1, pz + Math.cos(ry) * 0.3, ry, set);   // pole-mounted repeater
     }
   }
   const group = new THREE.Group();
@@ -270,45 +298,54 @@ export { carMaterials } from './cars.js';
 
 export function createParkedCars(colliders) {
   const r = rng(4242);
-  const slots = [];   // {x,z,ry}
-  const along = (start, end, fn) => { for (let v = start + 2; v < end - 6; v += 6.1) if (r() < 0.62) fn(v + (r() - 0.5) * 0.5); };
-  const segs = (list, key) => list.map((s, i) => i < list.length - 1 ? [list[i + 1][key] + list[i + 1].hw + 9, s[key] - s.hw - 9] : null).filter(Boolean);
+  const slots = [];   // {x,y,z,ry}
+  const along = (start, end, fn) => { for (let v = start + 2; v < end - 6; v += 6.1) if (r() < 0.58) fn(v + (r() - 0.5) * 0.5); };
   for (const a of AVENUES) {
-    for (const [z0, z1] of segs(STREETS, 'z')) for (const s of [-1, 1]) {
-      if (a.x * s > 80) continue;   // keep the outer kerbs clear for the barriers
-      along(z0, z1, (z) => { if (a.x === 0 && z > 214) return; slots.push({ x: a.x + s * (a.hw - 1.2), z: z + 3, ry: s > 0 ? Math.PI / 2 : -Math.PI / 2 }); });
+    const zs = STREETS.filter(s => isNode(a, s)).sort((p, q) => p.z - q.z);
+    for (let i = 0; i < zs.length - 1; i++) for (const s of [-1, 1]) {
+      along(zs[i].z + zs[i].hw + 9, zs[i + 1].z - zs[i + 1].hw - 9, (z) => {
+        if (a.x === 0 && z > 210 && z < 258) return;          // keep the start line clear
+        slots.push({ x: a.x + s * (a.hw - 1.2), z: z + 3, ry: s > 0 ? Math.PI / 2 : -Math.PI / 2 });
+      });
     }
   }
-  const avs = [...AVENUES].sort((p, q) => p.x - q.x);
   for (const st of STREETS) {
     if (st.hw > 9) continue;       // arterials have no parking
-    for (let i = 0; i < avs.length - 1; i++) for (const s of [-1, 1]) {
+    const xs = AVENUES.filter(a => isNode(a, st)).sort((p, q) => p.x - q.x);
+    for (let i = 0; i < xs.length - 1; i++) for (const s of [-1, 1]) {
       if (st.z + s * st.hw < Z_NORTH + 1) continue;
-      along(avs[i].x + avs[i].hw + 9, avs[i + 1].x - avs[i + 1].hw - 9, (x) => slots.push({ x: x + 3, z: st.z + s * (st.hw - 1.2), ry: s > 0 ? Math.PI : 0 }));
+      if (st.z > HILL_Z && xs[i].x < -96) continue;           // too steep to park on
+      along(xs[i].x + xs[i].hw + 9, xs[i + 1].x - xs[i + 1].hw - 9, (x) => slots.push({ x: x + 3, z: st.z + s * (st.hw - 1.2), ry: s > 0 ? Math.PI : 0 }));
     }
   }
+  for (const s of slots) { s.y = heightAt(s.x, s.z); s.kind = Math.floor(r() * CAR_KINDS) % CAR_KINDS; }
   const group = new THREE.Group();
-  const per = Array.from({ length: CAR_KINDS }, () => []);
-  for (const s of slots) per[Math.floor(r() * CAR_KINDS) % CAR_KINDS].push(s);
   const col = new THREE.Color();
-  per.forEach((list, k) => {
-    const set = makeCarSet(k, list.length, false);
-    list.forEach((s, i) => {
-      tmpQ.setFromAxisAngle(UP, s.ry);
-      tmpM.compose(tmpV.set(s.x, s.y ?? 0, s.z), tmpQ, tmpS);
-      set.setMatrixAt(i, tmpM);
-      set.body.setColorAt(i, col.setHex(CAR_COLORS[Math.floor(r() * CAR_COLORS.length)]));
-      const alongX = Math.abs(Math.sin(s.ry)) < 0.5;
-      const hl = 2.4, hw = set.W / 2 + 0.05;
-      colliders.push(alongX ? { x0: s.x - hl, x1: s.x + hl, z0: s.z - hw, z1: s.z + hw, low: true } : { x0: s.x - hw, x1: s.x + hw, z0: s.z - hl, z1: s.z + hl, low: true });
-    });
-    group.add(...set.all);
-  });
-  // soft contact shadows
-  const sh = new THREE.InstancedMesh(new THREE.PlaneGeometry(5.6, 2.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, color: 0x000000, opacity: 0.85 }), slots.length);
-  slots.forEach((s, i) => { tmpQ.setFromAxisAngle(UP, s.ry); tmpM.compose(tmpV.set(s.x, (s.y ?? 0) + 0.02, s.z), tmpQ, tmpS); sh.setMatrixAt(i, tmpM); });
-  sh.layers.set(1); sh.frustumCulled = false; sh.renderOrder = 2;
-  group.add(sh);
+  const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, color: 0x000000, opacity: 0.85 });
+  const shadowGeo = new THREE.PlaneGeometry(5.6, 2.9).rotateX(-Math.PI / 2);
+  for (const list of byChunk(slots)) {
+    const objs = [];
+    for (let k = 0; k < CAR_KINDS; k++) {
+      const sub = list.filter(s => s.kind === k);
+      if (!sub.length) continue;
+      const set = makeCarSet(k, sub.length, false);
+      sub.forEach((s, i) => {
+        tmpQ.setFromAxisAngle(UP, s.ry);
+        tmpM.compose(tmpV.set(s.x, s.y, s.z), tmpQ, tmpS);
+        set.setMatrixAt(i, tmpM);
+        set.body.setColorAt(i, col.setHex(CAR_COLORS[Math.floor(r() * CAR_COLORS.length)]));
+        const alongX = Math.abs(Math.sin(s.ry)) < 0.5;
+        const hl = 2.4, hw = set.W / 2 + 0.05;
+        colliders.push(alongX ? { x0: s.x - hl, x1: s.x + hl, z0: s.z - hw, z1: s.z + hw, low: true } : { x0: s.x - hw, x1: s.x + hw, z0: s.z - hl, z1: s.z + hl, low: true });
+      });
+      group.add(...set.all); objs.push(...set.all);
+    }
+    const sh = new THREE.InstancedMesh(shadowGeo, shadowMat, list.length);
+    list.forEach((s, i) => { tmpQ.setFromAxisAngle(UP, s.ry); tmpM.compose(tmpV.set(s.x, s.y + 0.02, s.z), tmpQ, tmpS); sh.setMatrixAt(i, tmpM); });
+    sh.layers.set(1); sh.renderOrder = 2;
+    group.add(sh); objs.push(sh);
+    registerChunk(list, objs);
+  }
   return { group, slots };
 }
 
@@ -324,7 +361,15 @@ export function shadowTex() {
 }
 
 // ---------------------------------------------------------------- neon signs
+const _neon = new Map();
 function neonTexture(text, color, vertical) {
+  const key = text + color + vertical;
+  if (_neon.has(key)) return _neon.get(key);
+  const made = makeNeon(text, color, vertical);
+  _neon.set(key, made);
+  return made;
+}
+function makeNeon(text, color, vertical) {
   const c = document.createElement('canvas');
   const L = text.length;
   if (vertical) { c.width = 160; c.height = 60 + L * 118; } else { c.width = 80 + L * 92; c.height = 190; }
@@ -352,37 +397,40 @@ export function createSigns(lots) {
   const r = rng(909);
   const group = new THREE.Group();
   const backing = [];
+  const faces = new Map();
   let wi = 0;
-  const addBlade = (x, y, z, nx, nz, word, color, h) => {
+  const addBlade = (x, y, z, nx, nz, word, color, h, mats) => {
     const { tex, aspect } = neonTexture(word, color, true);
     const w = h * aspect;
-    const mat = new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(2.4, 2.4, 2.4) });
+    if (!mats.has(word)) mats.set(word, new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(2.4, 2.4, 2.4) }));
+    const mat = mats.get(word);
     // blade sticks out along the wall normal (nx,nz); its faces look along the street
     const cx = x + nx * (w / 2 + 0.35), cz = z + nz * (w / 2 + 0.35);
     for (const s of [-1, 1]) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
-      m.position.set(cx + (nz !== 0 ? s * 0.13 : 0), y, cz + (nx !== 0 ? s * 0.13 : 0));
-      m.rotation.y = nx !== 0 ? (s > 0 ? 0 : Math.PI) : (s > 0 ? Math.PI / 2 : -Math.PI / 2);
-      group.add(m);
+      const pg = new THREE.PlaneGeometry(w, h).rotateY(nx !== 0 ? (s > 0 ? 0 : Math.PI) : (s > 0 ? Math.PI / 2 : -Math.PI / 2)).translate(cx + (nz !== 0 ? s * 0.13 : 0), y, cz + (nx !== 0 ? s * 0.13 : 0));
+      if (!faces.has(word)) faces.set(word, []);
+      faces.get(word).push(pg);
     }
+    void mat;
     backing.push(box(nx !== 0 ? w + 0.1 : 0.24, h + 0.1, nx !== 0 ? 0.24 : w + 0.1, cx, y, cz));
     backing.push(box(nx !== 0 ? 0.5 : 0.08, 0.08, nx !== 0 ? 0.08 : 0.5, x + nx * 0.2, y + h * 0.3, z + nz * 0.2));
     backing.push(box(nx !== 0 ? 0.5 : 0.08, 0.08, nx !== 0 ? 0.08 : 0.5, x + nx * 0.2, y - h * 0.3, z + nz * 0.2));
   };
+  const mats = new Map();
   for (const L of lots) {
-    if (!L.name) continue;
-    const cx = (L.x0 + L.x1) / 2, cz = (L.z0 + L.z1) / 2;
-    // the wall that faces the nearest avenue
-    const av = AVENUES.reduce((b, a) => Math.abs(a.x - cx) < Math.abs(b.x - cx) ? a : b);
-    const nx = av.x > cx ? 1 : -1;
-    const wx = nx > 0 ? L.x1 : L.x0;
+    if (L.district === 'none') continue;
+    if (!L.door || r() < 0.25) continue;
+    const { nx, nz } = L.door;
     const n = L.type === 'brick' ? 2 : 1;
     for (let i = 0; i < n; i++) {
       const [word, color] = SIGN_WORDS[wi++ % SIGN_WORDS.length];
-      const z = L.z0 + (L.z1 - L.z0) * (n === 1 ? 0.3 + r() * 0.4 : (i + 0.5) / n + (r() - 0.5) * 0.1);
-      addBlade(wx, 6.6 + r() * 1.6, z, nx, 0, word, color, Math.min(4.6, 1.0 + word.length * 0.62));
+      const t = n === 1 ? 0.3 + r() * 0.4 : (i + 0.5) / n + (r() - 0.5) * 0.1;
+      const wx = nx !== 0 ? (nx > 0 ? L.x1 : L.x0) : L.x0 + (L.x1 - L.x0) * t;
+      const wz = nz !== 0 ? (nz > 0 ? L.z1 : L.z0) : L.z0 + (L.z1 - L.z0) * t;
+      addBlade(wx, heightAt(L.door.x, L.door.z) + 6.6 + r() * 1.6, wz, nx, nz, word, color, Math.min(4.6, 1.0 + word.length * 0.62), mats);
     }
   }
+  for (const [word, list] of faces) { const m = new THREE.Mesh(mergeGeometries(list), mats.get(word)); m.frustumCulled = false; group.add(m); }
   // horizontal fascia lettering for the market hall
   const market = lots.find(l => l.type === 'grocery');
   if (market) {
@@ -416,8 +464,10 @@ export function createBarriers(colliders) {
     }
     colliders.push(alongX ? { x0: x - span / 2, x1: x + span / 2, z0: z - 0.6, z1: z + 0.6 } : { x0: x - 0.6, x1: x + 0.6, z0: z - span / 2, z1: z + span / 2 });
   };
-  for (const s of STREETS) { add(X_WEST - 7, s.z, false, s.hw * 2 + 1); add(X_EAST + 7, s.z, false, s.hw * 2 + 1); }
-  for (const a of AVENUES) add(a.x, Z_SOUTH + 7, true, a.hw * 2 + 1);
+  for (const s of STREETS) {
+    if (s.x1 > X_EAST + 10) add(X_EAST + 7, s.z, false, s.hw * 2 + 1);
+    if (s.x0 < X_WEST - 10 && s.x0 > -430) add(X_WEST - 7, s.z, false, s.hw * 2 + 1);
+  }
   const mat = new THREE.MeshStandardMaterial({ color: 0x8a8a84, roughness: 0.8 });
   const m = new THREE.Mesh(mergeGeometries(geos), mat);
   group.add(m);

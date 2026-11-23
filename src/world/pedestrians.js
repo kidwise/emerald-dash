@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { cityBlocks, CURB, X_WEST, X_EAST, Z_NORTH, Z_SOUTH, LAKE_Z } from '../config.js';
+import { cityCells, CURB, Z_NORTH, LAKE_Z, HILL_Z, CAMPUS, heightAt } from '../config.js';
 import { rng } from './buildings.js';
 
 // People with umbrellas walking the sidewalks. They jump clear of the van; they are never hit.
@@ -33,20 +33,29 @@ function washed(mat, k = 1.0) {
   return mat;
 }
 
-export function createPedestrians(count = 110) {
+export function createPedestrians(count = 260) {
   const r = rng(8088);
   const paths = [];
   const rectPath = (x0, x1, z0, z1) => closedPath([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]);
-  for (const b of cityBlocks()) {
-    if (b.kind !== 'inner') continue;
-    for (const inset of [2.5, 3.5]) paths.push({ p: rectPath(b.x0 + inset, b.x1 - inset, b.z0 + inset, b.z1 - inset), w: 6 });
+  for (const c of cityCells()) {
+    if (!['slu', 'sluW', 'downtown', 'outerE', 'outerS', 'market'].includes(c.kind)) continue;
+    const R = c.roads;
+    if (R.n && R.s && R.e && R.w && !c.cliff) {
+      for (const inset of [2.5, 3.5]) paths.push({ p: rectPath(c.x0 + inset, c.x1 - inset, c.z0 + inset, c.z1 - inset), w: 6 });
+      continue;
+    }
+    // partial blocks: stroll back and forth along whichever sides have a street
+    const x0 = Math.max(c.x0, -540) + 6, x1 = Math.min(c.x1, 110) - 6, z0 = c.z0 + 6, z1 = Math.min(c.z1, 806) - 6;
+    if (R.n && x1 - x0 > 20) paths.push({ p: closedPath([[x0, c.z0 + 3], [x1, c.z0 + 3]]), w: 2.5 });
+    if (R.s && x1 - x0 > 20) { const z = c.cliff ? HILL_Z + 2.3 : c.z1 - 3; paths.push({ p: closedPath([[x0, z], [x1, z]]), w: 2.5 }); }
+    if (R.w && z1 - z0 > 20) paths.push({ p: closedPath([[c.x0 + 3, z0], [c.x0 + 3, z1]]), w: 2.5 });
+    if (R.e && z1 - z0 > 20) paths.push({ p: closedPath([[c.x1 - 3, z0], [c.x1 - 3, z1]]), w: 2.5 });
   }
-  // outer sidewalks facing the playable streets, and the park
-  paths.push({ p: closedPath([[X_WEST - 3, Z_NORTH + 14], [X_WEST - 3, Z_SOUTH - 14]]), w: 5 });
-  paths.push({ p: closedPath([[X_EAST + 3, Z_NORTH + 14], [X_EAST + 3, Z_SOUTH - 14]]), w: 5 });
-  paths.push({ p: closedPath([[X_WEST + 14, Z_SOUTH + 3], [X_EAST - 14, Z_SOUTH + 3]]), w: 4 });
+  // the park and the Seattle Center campus
   paths.push({ p: rectPath(-3, 3, LAKE_Z + 12, Z_NORTH - 5), w: 7 });
   paths.push({ p: closedPath([[-170, LAKE_Z + 7], [170, LAKE_Z + 7], [170, LAKE_Z + 10], [-170, LAKE_Z + 10]]), w: 8 });
+  paths.push({ p: rectPath(CAMPUS.x0 + 30, CAMPUS.x1 - 12, CAMPUS.z0 + 14, CAMPUS.z1 - 14), w: 12 });
+  paths.push({ p: rectPath(CAMPUS.x0 + 70, CAMPUS.x1 - 50, CAMPUS.z0 + 50, CAMPUS.z1 - 60), w: 8 });
   const wsum = paths.reduce((a, p) => a + p.w, 0);
 
   const peds = [];
@@ -130,7 +139,7 @@ export function createPedestrians(count = 110) {
       const want = p.dir > 0 ? P.h : P.h + Math.PI;
       let dh = want - p.h; dh = ((dh + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       p.h += dh * Math.min(1, dt * 5);
-      let y = CURB;
+      let y = heightAt(x, z) + CURB;
       if (p.hop > 0) { p.hop -= dt; y += Math.sin(Math.max(0, p.hop) / 0.55 * Math.PI) * 0.38; }
       const stride = fleeing ? 0 : Math.sin(time * p.speed * 5.2 + p.phase);
       y += Math.abs(stride) * 0.025;
