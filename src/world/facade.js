@@ -36,6 +36,11 @@ export class FacadeGeo {
     const d = this._v(x0, y, z0, 0, ny, 0, 0, z1 - z0, x1 - x0, z1 - z0, o);
     if (up) this.idx.push(a, b, c, a, c, d); else this.idx.push(a, c, b, a, d, c);
   }
+  // flat roof triangle (points are [x, z])
+  tri(a, b, c, y, o) {
+    const i = [a, b, c].map(p => this._v(p[0], y, p[1], 0, 1, 0, p[0], p[1], 1, 1, o));
+    this.idx.push(i[0], i[1], i[2]);
+  }
   box(x0, x1, z0, z1, y0, y1, o, roof = { style: STYLE.ROOF }, bottom = false) {
     this.wall(x0, z1, x1, z1, y0, y1, o);
     this.wall(x1, z1, x1, z0, y0, y1, o);

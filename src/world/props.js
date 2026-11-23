@@ -84,8 +84,8 @@ export function registerChunk(list, objs) {
   chunks.push({ objs, x, z });
 }
 
-export function createLamps(obstacles) {
-  const sites = lampSites();
+export function createLamps(obstacles) { return buildLamps(lampSites(), obstacles); }
+export function buildLamps(sites, obstacles) {
   const pole = mergeGeometries([
     new THREE.CylinderGeometry(0.07, 0.11, LAMP_H, 8).translate(0, LAMP_H / 2, 0),
     new THREE.CylinderGeometry(0.16, 0.18, 0.9, 8).translate(0, 0.45, 0),
@@ -173,7 +173,6 @@ function makeTree(r) {
 
 export function createTrees(obstacles) {
   const r = rng(77);
-  const variants = [makeTree(r), makeTree(r), makeTree(r)];
   const spots = [];
   const okAlong = (v) => { const m = ((v % 88) + 88) % 88; return m > 16 && m < 72; };
   for (const a of AVENUES) {
@@ -198,11 +197,15 @@ export function createTrees(obstacles) {
     spots.push([x, z]);
   }
 
+  return buildTrees(spots, obstacles, r);
+}
+export function buildTrees(spots, obstacles, r = rng(78)) {
+  const variants = [makeTree(r), makeTree(r), makeTree(r)];
   const bark = new THREE.MeshStandardMaterial({ color: 0x0c0a09, roughness: 0.9 });
   const group = new THREE.Group();
   const pos = [], col = [], size = [], ph = [];
   const palettes = [[[1.0, 0.72, 0.36]], [[1.0, 0.72, 0.36]], [[1.0, 0.72, 0.36]], [[0.75, 0.88, 1.0]], [[1.0, 0.25, 0.2], [0.25, 1.0, 0.4], [0.3, 0.5, 1.0], [1.0, 0.75, 0.2]]];
-  const placed = spots.map(([x, z]) => ({ x, z, y: heightAt(x, z) + CURB, vi: Math.floor(r() * 3) % 3, rot: r() * 6.28, sc: 0.9 + r() * 0.35 }));
+  const placed = spots.map(([x, z, y]) => ({ x, z, y: y ?? heightAt(x, z) + CURB, vi: Math.floor(r() * 3) % 3, rot: r() * 6.28, sc: 0.9 + r() * 0.35 }));
   for (const list of byChunk(placed)) {
     const meshes = variants.map(v => new THREE.InstancedMesh(v.geo, bark, list.length));
     const counts = [0, 0, 0];

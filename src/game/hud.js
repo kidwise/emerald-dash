@@ -96,7 +96,7 @@ export function createHud() {
         q(p, 'i').style.transform = `rotate(${d.angle}rad)`;
       });
     },
-    showTitle(onStart, onExplore, found, places) {
+    showTitle(onStart, onExplore, found, places, real, credit) {
       overlay.className = 'hud-overlay title show';
       overlay.innerHTML = `
         <div class="panel">
@@ -113,6 +113,8 @@ export function createHud() {
             <button class="go">START SHIFT <small>ENTER</small></button>
             <button class="go alt">EXPLORE <small>E</small></button>
           </div>
+          <a class="maplink" href="${real ? './' : './?map=real'}">${real ? '← Back to the full city' : 'Preview: South Lake Union built from real map data →'}</a>
+          ${real ? `<p class="tip"><b>Real-map preview.</b> True streets, footprints and shoreline of South Lake Union. No traffic, pedestrians or hand-built landmarks here yet. ${credit}.</p>` : ''}
           <p class="tip"><b>Shift:</b> the clock runs down and every delivery adds time, more for longer trips. Follow the glowing line to the selected job.
           <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a pick-up for a cross-town run: drive gently and hand over slowly.
           <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake.<br><b>Explore:</b> no clock. Landmarks found: ${found} of ${places}.</p>
@@ -146,12 +148,13 @@ export function createHud() {
     hideOverlay() { overlay.classList.remove('show'); overlay.style.pointerEvents = 'none'; },
 
     // north-up minimap that scrolls with the van
-    drawMap(van, targets, pickups, tram, cars = [], nav = null) {
+    drawMap(van, targets, pickups, tram, cars = [], nav = null, painter = null) {
       const c = map.getContext('2d');
       const w = map.width, h = map.height, k = 0.86;
       const X = (x) => w / 2 + (x - van.pos.x) * k, Z = (z) => h / 2 + (z - van.pos.z) * k;
       c.clearRect(0, 0, w, h);
       const rect = (r, col) => { c.fillStyle = col; c.fillRect(X(r.x0), Z(r.z0), (r.x1 - r.x0) * k, (r.z1 - r.z0) * k); };
+      if (painter) painter(c, X, Z, k); else {
       rect({ x0: -900, x1: 900, z0: -900, z1: LAKE_Z }, 'rgba(40,110,150,0.55)');
       rect({ x0: -900, x1: MARKET.x0, z0: 345, z1: 1200 }, 'rgba(40,110,150,0.55)');
       rect({ x0: -420, x1: 420, z0: LAKE_Z, z1: Z_NORTH }, 'rgba(40,110,70,0.45)');
@@ -159,6 +162,7 @@ export function createHud() {
       c.fillStyle = 'rgba(190,210,230,0.5)';
       for (const a of AVENUES) c.fillRect(X(a.x - a.hw), Z(a.z0), a.hw * 2 * k, (a.z1 - a.z0) * k);
       for (const s of STREETS) { const x0 = Math.max(s.x0, -540), x1 = Math.min(s.x1, 104); c.fillRect(X(x0), Z(s.z - s.hw), (x1 - x0) * k, s.hw * 2 * k); }
+      }
       if (nav && nav.pts.length > 1) { c.strokeStyle = nav.target.css; c.lineWidth = 3.5; c.globalAlpha = 0.85; c.lineJoin = 'round'; c.beginPath(); nav.pts.forEach(([x, z], i) => (i ? c.lineTo(X(x), Z(z)) : c.moveTo(X(x), Z(z)))); c.stroke(); c.globalAlpha = 1; }
       c.fillStyle = 'rgba(255,235,200,0.75)'; for (const q2 of cars) c.fillRect(X(q2.x) - 2, Z(q2.z) - 2, 4, 4);
       if (tram) { c.fillStyle = '#c77dff'; c.fillRect(X(tram.x) - 3, Z(tram.z) - 9, 6, 18); }

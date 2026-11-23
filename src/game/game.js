@@ -19,7 +19,7 @@ const TRAM_ROOF = 3.55, DOCK_Y = -0.07;
 const DOCKS = [[30, LAKE_Z - 28, 5, 56], [78, LAKE_Z - 34, 5, 68], [126, LAKE_Z - 24, 4, 48], [54, LAKE_Z - 54, 52, 3.5]];
 const onDock = (x, z) => (x > -112 && x < -22 && z > LAKE_Z - 78) || DOCKS.some(([dx, dz, w, d]) => Math.abs(x - dx) < w / 2 && Math.abs(z - dz) < d / 2);
 
-const POIS = [
+const GRID_POIS = [
   { name: 'Whole Foods Market', sub: 'Westlake Ave & Denny Way', x: -30, z: 258, r: 34 },
   { name: 'Lake Union Park', sub: 'Twelve acres on the south shore', x: 0, z: -286, r: 30 },
   { name: 'MOHAI', sub: 'Museum of History & Industry', x: -60, z: -345, r: 44 },
@@ -58,7 +58,7 @@ const CAMPUS_STOPS = [
   { x: -640, z: 124, name: 'Space Needle Base' }, { x: -590, z: 214, name: 'Glass Garden Entrance' },
   { x: -700, z: 84, name: 'International Fountain' }, { x: -556, z: 150, name: 'Monorail Station' }, { x: -686, z: 226, name: 'Armory Food Hall' },
 ];
-const START = [1.9, 238, -Math.PI / 2];
+const GRID_START = [1.9, 238, -Math.PI / 2];
 
 function angleLerp(a, b, t) { let d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; return a + d * t; }
 
@@ -178,6 +178,7 @@ export function initGame(app) {
     return Math.hypot(x - px, z - pz);
   };
   const surfaceY = (x, z) => {
+    if (REAL) return groundHeight(x, z);
     const tr = world.streetcar.state;
     if (Math.abs(x - tr.x) < 1.5 && Math.abs(z - tr.z) < 9.9) return TRAM_ROOF;
     if (z < LAKE_Z - 0.6) return onDock(x, z) ? DOCK_Y : -0.62;
@@ -255,9 +256,9 @@ export function initGame(app) {
   const cupMat = new THREE.MeshStandardMaterial({ color: 0xf4efe6, roughness: 0.5, emissive: 0xffa040, emissiveIntensity: 0.9 });
   const sleeveGeo = new THREE.CylinderGeometry(0.262, 0.232, 0.3, 20, 1, true).translate(0, 0.36, 0);
   const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x6a3d1c, roughness: 0.8, emissive: 0x4a2408, emissiveIntensity: 1 });
-  const pickups = [[1.8, 150], [-1.8, -40], [-44, 91.5], [44, -84.5], [-84.5, 30], [84.5, -130], [30, -260.5], [-40, 172.5], [1.8, -215], [60, 3.5],
+  const pickups = (world.coffeeSpots || [[1.8, 150], [-1.8, -40], [-44, 91.5], [44, -84.5], [-84.5, 30], [84.5, -130], [30, -260.5], [-40, 172.5], [1.8, -215], [60, 3.5],
     [-90.9, 400], [1.9, 480], [85.1, 560], [-40, 618.4], [-220, 706.4], [-355, 600], [-437, 500], [-130, 442.4], [40, 706.4], [-300, 354.4],
-    [-250, DENNY.z - 5.3], [-420, DENNY.z + 5.3], [-525, 120], [-330, 2.4], [-620, 160], [-680, 110]].map(([x, z]) => {
+    [-250, DENNY.z - 5.3], [-420, DENNY.z + 5.3], [-525, 120], [-330, 2.4], [-620, 160], [-680, 110]]).map(([x, z]) => {
     const g = new THREE.Group();
     g.add(new THREE.Mesh(cupGeo, cupMat), new THREE.Mesh(sleeveGeo, sleeveMat));
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ color: new THREE.Color(1.6, 0.8, 0.25), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, map: haloTex() }));
@@ -275,11 +276,14 @@ export function initGame(app) {
   try { best = Number(localStorage.getItem('emerald-dash-best') || 0); } catch { /* storage unavailable */ }
 
   // ---------------------------------------------------------------- dispatch: one continuous city, jobs appear near the van
-  const SOURCES = [...BASE_SOURCES, ...world.pike.sources];
-  const STOPS = [...BASE_STOPS, ...world.pike.stops];
+  const REAL = !!world.real;
+  const POIS = world.pois || GRID_POIS;
+  const SOURCES = world.sources || [...BASE_SOURCES, ...world.pike.sources];
+  const STOPS = world.stops || [...BASE_STOPS, ...world.pike.stops];
+  const START = world.start || GRID_START;
   const PLACES = POIS.length + STOPS.length;
-  const inSlow = (x, z) => x > PIKE.slow.x0 && x < PIKE.slow.x1 && z > PIKE.slow.z0 && z < PIKE.slow.z1;
-  const campusLots = CAMPUS_STOPS.map(c => ({ name: c.name, door: { x: c.x, z: c.z }, district: 'center', x0: c.x, x1: c.x, z0: c.z, z1: c.z }));
+  const inSlow = (x, z) => !REAL && x > PIKE.slow.x0 && x < PIKE.slow.x1 && z > PIKE.slow.z0 && z < PIKE.slow.z1;
+  const campusLots = (REAL ? [] : CAMPUS_STOPS).map(c => ({ name: c.name, door: { x: c.x, z: c.z }, district: 'center', x0: c.x, x1: c.x, z0: c.z, z1: c.z }));
   const allLots = () => [...world.buildings.lots.filter(l => l.name && l.door && l.type !== 'grocery' && l.district !== 'none'), ...campusLots];
   const busy = (l) => targets.some(t => !t.done && (t.name === l.name || t.dest === l));
   const pickLot = (cx, cz, dMin, dMax) => {
@@ -296,9 +300,9 @@ export function initGame(app) {
     if (!kind) {
       const r = Math.random();
       const hasPick = !!S.cargo || live.some(t => t.kind === 'pickup' || t.kind === 'grocery');
-      const tramOk = vz < 250 && Math.abs(vx) < 120 && !live.some(t => t.kind === 'tram');
-      const lakeOk = Math.hypot(vx - 30, vz - LAKE_Z) < 380 && !live.some(t => t.kind === 'boat');
-      kind = r < 0.15 && !hasPick && S.delivered >= 1 ? 'pickup' : r < 0.30 && !live.some(t => t.kind === 'rush') && S.delivered >= 1 ? 'rush' : r < 0.40 && tramOk ? 'tram' : r < 0.48 && lakeOk ? 'boat' : 'parcel';
+      const tramOk = !REAL && vz < 250 && Math.abs(vx) < 120 && !live.some(t => t.kind === 'tram');
+      const lakeOk = !REAL && Math.hypot(vx - 30, vz - LAKE_Z) < 380 && !live.some(t => t.kind === 'boat');
+      kind = r < 0.15 && !hasPick && S.delivered >= 1 && SOURCES.length ? 'pickup' : r < 0.30 && !live.some(t => t.kind === 'rush') && S.delivered >= 1 ? 'rush' : r < 0.40 && tramOk ? 'tram' : r < 0.48 && lakeOk ? 'boat' : 'parcel';
     }
     let t;
     if (kind === 'tram') { t = makeTarget('tram', tr.x, tr.z, TRAM_ROOF, 'Streetcar roof'); t.far = 140; hud.toast('Streetcar drop', 'Land one on the roof as it moves'); }
@@ -400,6 +404,7 @@ export function initGame(app) {
   }
 
   function nearestRoadPoint(x, z) {
+    if (world.nearestRoad) return world.nearestRoad(x, z);
     let best = null, bd = 1e9;
     for (const a of AVENUES) { if (!avenueAt(a, z)) continue; const d = Math.abs(a.x - x); if (d < bd) { bd = d; best = { x: a.x + (a.hw > 9 ? 1.9 : (a.hw - 2.2) / 2), z: THREE.MathUtils.clamp(z, a.z0 + 14, a.z1 - 14), h: -Math.PI / 2 }; } }
     for (const st of STREETS) { if (!streetAt(st, x) || x < -540 || x > 100) continue; const d = Math.abs(st.z - z); if (d < bd) { bd = d; best = { x, z: st.z + (st.hw > 9 ? 1.9 : (st.hw - 2.2) / 2), h: 0 }; } }
@@ -440,7 +445,7 @@ export function initGame(app) {
   function land(p) {
     p.landed = true;
     const px = p.m.position.x, pz = p.m.position.z;
-    if (pz < LAKE_Z - 0.6 && !onDock(px, pz)) {       // into the lake
+    if (!REAL && pz < LAKE_Z - 0.6 && !onDock(px, pz)) {       // into the lake
       for (let i = 0; i < 20; i++) { const a = Math.random() * 6.28; emit(px, -0.4, pz, Math.cos(a) * 2.5, 3 + Math.random() * 4, Math.sin(a) * 2.5, 0.6, 0.2, 0.5, 0.7, 0.9, 12, 1); }
       p.active = false; p.m.visible = false;
     }
@@ -488,6 +493,7 @@ export function initGame(app) {
 
   function streetName() {
     const { x, z } = van.pos;
+    if (world.streetName) return world.streetName(x, z);
     if (z < Z_NORTH) return z < LAKE_Z + 30 ? 'Lake Union Waterfront' : 'Lake Union Park';
     if (x < CAMPUS.x1 && z > CAMPUS.z0 && z < CAMPUS.z1) return 'Seattle Center';
     if (x < MARKET.x1 && z > MARKET.z0) return 'Pike Place Market';
@@ -551,11 +557,11 @@ export function initGame(app) {
   const headWorld = new THREE.Vector3(), tmp = new THREE.Vector3();
   let frameN = 0;
   const album = new Set();
-  try { for (const n of JSON.parse(localStorage.getItem('emerald-dash-album') || '[]')) album.add(n); } catch { /* ignore */ }
-  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length + BASE_STOPS.length + world.pike.stops.length);
+  try { for (const n of JSON.parse(localStorage.getItem('emerald-dash-album') || '[]')) if (POIS.some(p => p.name === n) || STOPS.some(p => p.name === n)) album.add(n); } catch { /* ignore */ }
+  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length + STOPS.length, REAL, world.credit);
   showTitle();
   hud.setClock(SHIFT_TIME, []);
-  van.reset(1.9, 238, -Math.PI / 2); van.sync();
+  van.reset(START[0], START[1], START[2]); van.sync();
   if (params.get('autostart')) startShift(params.get('autostart') === 'explore');
 
   app.update = (dt) => {
@@ -836,7 +842,7 @@ export function initGame(app) {
       hud.setClock(S.time, chips, S.explore ? `LANDMARKS ${album.size}/${PLACES}` : null, S.delivered);
       hud.setSpeed(van.speed * 2.237, Math.max(0, van.boost) / 3.6);
       if (frameN % 6 === 0) hud.setStreet(streetName());
-      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars, nav);
+      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, REAL ? null : world.streetcar.state, world.traffic.cars, nav, world.drawMap);
       const W = innerWidth, H = innerHeight, m = 46;
       const dv = (t) => (t.x - van.pos.x) ** 2 + (t.z - van.pos.z) ** 2;
       hud.setPins(targets.filter(t => !t.done).sort((a, b) => dv(a) - dv(b)).slice(0, 3).map(t => {

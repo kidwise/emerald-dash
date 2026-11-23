@@ -47,8 +47,8 @@ export function createLake(reflection, o = {}) {
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(o.w ?? 2600, o.d ?? 1300).rotateX(-Math.PI / 2), mat);
-  mesh.position.set(o.x ?? 0, o.y ?? -0.55, o.z ?? LAKE_Z - 650 + 0.5);
+  const mesh = new THREE.Mesh(o.geometry || new THREE.PlaneGeometry(o.w ?? 2600, o.d ?? 1300).rotateX(-Math.PI / 2), mat);
+  if (o.geometry) mesh.position.set(0, o.y ?? 0, 0); else mesh.position.set(o.x ?? 0, o.y ?? -0.55, o.z ?? LAKE_Z - 650 + 0.5);
   mesh.layers.set(1);
   return { mesh, uniforms };
 }

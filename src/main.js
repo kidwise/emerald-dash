@@ -37,7 +37,8 @@ scene.environment = bakeEnvironment(renderer, sky);
 scene.environmentIntensity = 1.0;
 
 const reflection = new PlanarReflection(renderer, 0.5);
-const ground = createGround(reflection);
+const REAL_MAP = params.get('map') === 'real';
+const ground = createGround(reflection, { real: REAL_MAP });
 scene.add(ground.group);
 
 scene.add(new THREE.HemisphereLight(0x6d8fd0, 0x1a1512, 0.55));
@@ -48,8 +49,8 @@ const app = { renderer, scene, camera, sky, ground, reflection, post, params, ti
 app.rebakeEnvironment = () => { const old = scene.environment; scene.environment = bakeEnvironment(renderer, sky); scene.add(sky.mesh); if (old) old.dispose(); };
 window.__app = app;
 
-const { initWorld } = await import('./world/index.js').catch((e) => { console.error(e); return {}; });
-if (initWorld) await initWorld(app);
+if (REAL_MAP) { const { initRealWorld } = await import('./real/world.js'); await initRealWorld(app, 'slu'); }
+else { const { initWorld } = await import('./world/index.js'); await initWorld(app); }
 const { initGame } = await import('./game/game.js');
 initGame(app);
 if (params.get('auto')) { const [t, st, dr] = params.get('auto').split(',').map(Number); app.autoDrive = { throttle: t || 0, steer: st || 0, drift: !!dr }; }

@@ -61,7 +61,10 @@ export function hillF(x) {
   const t = Math.min(1, Math.max(0, (x - (-440 + 88 * k) - 8) / 72));
   return MARKET_Y + HILL_DROP * (k + t);
 }
-export const heightAt = (x, z) => (z > HILL_Z ? hillF(x) : 0);
+// A different map (the real-data one) can replace these answers wholesale.
+let OVERRIDE = null;
+export function setMapOverride(o) { OVERRIDE = o; }
+export const heightAt = (x, z) => (OVERRIDE ? 0 : z > HILL_Z ? hillF(x) : 0);
 
 export const avenueAt = (a, z) => z > a.z0 && z < a.z1;
 export const streetAt = (s, x) => x > s.x0 && x < s.x1;
@@ -71,6 +74,7 @@ export const avenueName = (a, z) => (z > Z_DENNY && a.nameS ? a.nameS : a.name);
 
 // kerb height above the terrain: 0 on a road surface, CURB elsewhere
 export function onRoad(x, z) {
+  if (OVERRIDE) return true;
   for (const a of AVENUES) if (Math.abs(x - a.x) < a.hw && avenueAt(a, z)) return true;
   for (const s of STREETS) if (Math.abs(z - s.z) < s.hw && streetAt(s, x)) return true;
   return false;
@@ -83,6 +87,7 @@ export const MARKET = { x0: -520, x1: -448, z0: 352, z1: 800 };            // Pi
 export const PARK = { x0: -205, x1: 205, z0: LAKE_Z + 4, z1: Z_NORTH };    // Lake Union Park
 const inRect = (r, x, z, m = 0) => x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;
 export function inBounds(x, z) {
+  if (OVERRIDE) return OVERRIDE.inBounds(x, z);
   if (inRect(CAMPUS, x, z) || inRect(MARKET, x, z) || inRect(PARK, x, z)) return true;
   for (const a of AVENUES) if (Math.abs(x - a.x) < a.hw + 12 && z > a.z0 - 4 && z < a.z1 + 4) return true;
   for (const s of STREETS) if (Math.abs(z - s.z) < s.hw + 12 && x > Math.max(s.x0, -540) - 4 && x < Math.min(s.x1, 104)) return true;
@@ -90,6 +95,7 @@ export function inBounds(x, z) {
 }
 
 export function district(x, z) {
+  if (OVERRIDE) return 'slu';
   if (x < -104 && z < Z_DENNY + 4) return z > -20 ? 'center' : 'none';
   if (z > Z_DENNY - 4) return 'downtown';
   return 'slu';
@@ -203,6 +209,7 @@ function snap(x, z) {
 }
 // shortest drive from (ax, az) to (bx, bz): a list of [x, z] corner points
 export function routeBetween(ax, az, bx, bz) {
+  if (OVERRIDE) return OVERRIDE.route(ax, az, bx, bz);
   const A = snap(ax, az), B = snap(bx, bz);
   const out = [[ax, az], [A.x, A.z]];
   const sameRoad = (A.a && A.a === B.a) || (A.st && A.st === B.st);

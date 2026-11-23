@@ -16,13 +16,13 @@ export function createRain(count = 15000) {
   g.setAttribute('aRnd', new THREE.BufferAttribute(rnd, 1));
   const uniforms = {
     uTime: { value: 0 }, uCenter: { value: new THREE.Vector3() }, uCamVel: { value: new THREE.Vector3() },
-    uHeadPos: { value: new THREE.Vector3(0, -100, 0) }, uHeadDir: { value: new THREE.Vector3(1, 0, 0) }, uIntensity: { value: 1 },
+    uHeadPos: { value: new THREE.Vector3(0, -100, 0) }, uHeadDir: { value: new THREE.Vector3(1, 0, 0) }, uIntensity: { value: 1 }, uLattice: { value: 1 },
   };
   const m = new THREE.ShaderMaterial({
     uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: /* glsl */`
       attribute float aEnd; attribute float aRnd;
-      uniform float uTime; uniform vec3 uCenter; uniform vec3 uCamVel; uniform vec3 uHeadPos; uniform vec3 uHeadDir; uniform float uIntensity;
+      uniform float uTime; uniform vec3 uCenter; uniform vec3 uCamVel; uniform vec3 uHeadPos; uniform vec3 uHeadDir; uniform float uIntensity; uniform float uLattice;
       varying vec3 vCol;
       ${GLSL_LAMPS}
       const vec3 B = vec3(46.0, 26.0, 46.0);
@@ -38,7 +38,7 @@ export function createRain(count = 15000) {
         float dist = -mv.z;
         float fade = smoothstep(26.0, 6.0, dist) * smoothstep(0.4, 2.0, dist);
         vec3 lit = vec3(0.30, 0.38, 0.52) * 0.055;
-        lit += mix(LAMP_COLOR, vec3(1.0), 0.35) * lampSum(q) * 0.85 * step(0.0, 9.5 - q.y);
+        lit += mix(LAMP_COLOR, vec3(1.0), 0.35) * (uLattice > 0.5 ? lampSum(q) : 0.12) * 0.85 * step(0.0, 9.5 - q.y);
         vec3 L = q - uHeadPos; float d = length(L);
         float cone = smoothstep(0.82, 0.97, dot(L / max(d, 0.01), uHeadDir));
         lit += vec3(1.0, 0.95, 0.85) * cone * exp(-d * 0.09) * 0.9;

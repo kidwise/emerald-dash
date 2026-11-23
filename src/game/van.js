@@ -396,6 +396,22 @@ export class Van {
         this.resolve(nx, nz, pen, off);
         cx = this.pos.x + fx * off; cz = this.pos.z + fz * off;
       }
+      const hash = this.world.segHash;
+      if (hash) {
+        const SC = this.world.segCell, gx = Math.floor(cx / SC), gz = Math.floor(cz / SC);
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+          const list = hash.get(`${gx + a},${gz + b}`); if (!list) continue;
+          for (let i = 0; i < list.length; i++) {
+            const s = list[i], dx = s.bx - s.ax, dz = s.bz - s.az;
+            const t = Math.max(0, Math.min(1, ((cx - s.ax) * dx + (cz - s.az) * dz) / (dx * dx + dz * dz || 1)));
+            const ox = cx - (s.ax + dx * t), oz = cz - (s.az + dz * t), d2 = ox * ox + oz * oz;
+            if (d2 >= R * R || d2 < 1e-8) continue;
+            const d = Math.sqrt(d2);
+            this.resolve(ox / d, oz / d, R - d, off);
+            cx = this.pos.x + fx * off; cz = this.pos.z + fz * off;
+          }
+        }
+      }
       for (let i = 0; i < obstacles.length; i++) {
         const o = obstacles[i];
         const dx = cx - o.x, dz = cz - o.z, rr = R - 0.25 + o.r;
