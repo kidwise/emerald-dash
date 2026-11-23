@@ -281,7 +281,7 @@ export function initGame(app) {
   const POIS = world.pois, SOURCES = world.sources, STOPS = world.stops, START = world.start;
   const PLACES = POIS.length + STOPS.length;
   const inSlow = world.inSlow;
-  const allLots = () => world.buildings.lots.filter(l => l.name && l.door);
+  const allLots = () => world.buildings.lots.filter(l => l.name && l.door && !l.noJob);
   const busy = (l) => targets.some(t => !t.done && (t.name === l.name || t.dest === l));
   const pickLot = (cx, cz, dMin, dMax) => {
     const d = (l) => Math.hypot(l.door.x - cx, l.door.z - cz);

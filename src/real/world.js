@@ -261,8 +261,10 @@ export async function initRealWorld(app, mapName = 'slu') {
     const setBox = (x0, x1, z0, z1, h, o) => { sg.box(x0, x1, z0, z1, MY, MY + h, o); tc.push({ x0, x1, z0, z1 }); };
     const brick = (seed, tint, lit = 0.5) => ({ style: STYLE.BRICK, seed, floorH: 3.9, bayW: 3.3, groundH: 5.2, lit, a: 1, tint });
     setBox(-423.4, -388, 627.6, 692.4, 19, brick(3.1, BRICKS[0]));
-    setBox(-427.4, -388, 539.6, 604.4, 15, brick(5.2, BRICKS[2]));
-    setBox(-423.4, -388, 451.6, 516.4, 23, { style: STYLE.CURTAIN, seed: 7.7, floorH: 4.1, bayW: 1.5, groundH: 5.6, lit: 0.5, a: 1, b: 0.4, tint: FRAMES[0], tint2: ACCENTS[4] });
+    // the real cross streets come in from the east here: Pine St (local z 569-582) and Stewart St (537-547)
+    setBox(-427.4, -388, 584, 626, 15, brick(5.2, BRICKS[2]));
+    setBox(-427.4, -388, 549, 567, 15, brick(4.1, BRICKS[4]));
+    setBox(-423.4, -388, 451.6, 535, 23, { style: STYLE.CURTAIN, seed: 7.7, floorH: 4.1, bayW: 1.5, groundH: 5.6, lit: 0.5, a: 1, b: 0.4, tint: FRAMES[0], tint2: ACCENTS[4] });
     setBox(-492, -459.1, 626, 694, 9.4, brick(2.2, [0.20, 0.27, 0.22], 0.9));
     setBox(-492, -452.6, 538, 606, 13, brick(9.4, BRICKS[1]));
     setBox(-492, -452.6, 450, 518, 13, brick(6.6, BRICKS[3]));
@@ -403,6 +405,9 @@ export async function initRealWorld(app, mapName = 'slu') {
           // a spot on dry land 11 m away, beside a street, with open water for the dock itself
           const sx = x + Math.cos(b) * 11, sz = z + Math.sin(b) * 11, nr = nearRoad(sx, sz, 2);
           if (inWater(sx, sz) || inBuilding(sx, sz) || !nr || nr.d > 30 || !inWater(x - Math.cos(b) * 4, z - Math.sin(b) * 4)) continue;
+          // the van has to be able to drive from the street to the standing spot
+          let open = true; for (let t = 0; t <= 1 && open; t += 0.04) { const qx = nr.x + (sx - nr.x) * t, qz = nr.z + (sz - nr.z) * t; for (const [ox, oz] of [[0, 0], [1.6, 0], [-1.6, 0], [0, 1.6], [0, -1.6]]) if (inBuilding(qx + ox, qz + oz) || inWater(qx + ox, qz + oz)) open = false; }
+          if (!open) continue;
           dock = { x, z, y: waterY[lakeN] + 0.55, stand: { x: sx, z: sz } };
           break search;
         }
@@ -443,6 +448,7 @@ export async function initRealWorld(app, mapName = 'slu') {
         const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1, fx = dx / l, fz = dz / l, nx = -fz, nz = fx;
         const off = rd.hw - 1.25, x = a[0] + dx * t + nx * side * off, z = a[1] + dz * t + nz * side * off;
         if (x < B.x0 + 10 || x > B.x1 - 10 || z < B.z0 + 10 || z > B.z1 - 10 || inSet(x, z, 8) || inWater(x, z) || nearTram(x, z)) continue;
+        { const other = nearRoad(x, z, 1); if (other && other.rd !== rd && other.d < other.rd.hw + 1.2) continue; }
         const h = Math.atan2(fz, fx) + (side < 0 && !rd.oneway ? Math.PI : 0), cx = Math.cos(h), cz = Math.sin(h);
         spots.push({ x, z, y: H(x, z) + 0.1, h, pitch: Math.atan((H(x + cx * 1.4, z + cz * 1.4) - H(x - cx * 1.4, z - cz * 1.4)) / 2.8), kind: Math.floor(r() * CAR_KINDS) % CAR_KINDS, color: CAR_COLORS[Math.floor(r() * CAR_COLORS.length)] });
         // a low box the van bumps into; the camera ignores it
@@ -505,6 +511,13 @@ export async function initRealWorld(app, mapName = 'slu') {
   scene.add(bmesh);
   updaters.push(() => { fm.uniforms.uTime.value = app.time; });
   // wall segments in a grid for collision
+  // a wall that crosses a carriageway (a skybridge, or a building mapped over a street) must not block the street
+  {
+    const crosses = (s) => { const len = Math.hypot(s.bx - s.ax, s.bz - s.az), n = Math.max(1, Math.ceil(len / 2)); for (let k = 0; k <= n; k++) { const x = s.ax + (s.bx - s.ax) * k / n, z = s.az + (s.bz - s.az) * k / n, nr = nearRoad(x, z, 1); if (nr && nr.rd.kind !== 'pedestrian' && nr.d < nr.rd.hw - 0.4 && !inSet(x, z, 4)) return true; } return false; };
+    for (let i = segs.length - 1; i >= 0; i--) if (!segs[i].low && crosses(segs[i])) segs.splice(i, 1);
+  }
+  // a job needs a doorstep on open ground within throwing reach of a street
+  for (const l of lots) { const d = l.door, nr = nearRoad(d.x, d.z, 2); if (inBuilding(d.x, d.z) || inWater(d.x, d.z) || !nr || nr.d > 15 || d.x < B.x0 + 8 || d.x > B.x1 - 8 || d.z < B.z0 + 8 || d.z > B.z1 - 8) l.noJob = true; }
   const SC = 40, segHash = new Map();
   for (const s of segs) {
     for (let cxk = Math.floor(Math.min(s.ax, s.bx) / SC); cxk <= Math.floor(Math.max(s.ax, s.bx) / SC); cxk++) for (let czk = Math.floor(Math.min(s.az, s.bz) / SC); czk <= Math.floor(Math.max(s.az, s.bz) / SC); czk++) {
@@ -636,6 +649,7 @@ export async function initRealWorld(app, mapName = 'slu') {
         const ax = q.rd.pts[j][0] - jx, az = q.rd.pts[j][1] - jz, l = Math.hypot(ax, az) || 1, ux = ax / l, uz = az / l;
         const px = jx + ux * (R + 1.5) + uz * (q.rd.hw + 0.9), pz = jz + uz * (R + 1.5) - ux * (q.rd.hw + 0.9), py = H(px, pz);
         if (inBuilding(px, pz)) continue;
+        { const nr2 = nearRoad(px, pz, 1); if (nr2 && nr2.d < nr2.rd.hw + 0.2) continue; }
         const ry = Math.atan2(ux, uz);       // lamp faces back down the arm, toward arriving traffic
         frame.push(new THREE.CylinderGeometry(0.09, 0.13, 5.2, 7).translate(px, py + 2.6, pz));
         head(px - uz * 0.35, py + 4.4, pz + ux * 0.35, ry, Math.abs(ux) > Math.abs(uz) ? lens.b : lens.a);
@@ -664,7 +678,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   if (tramLine && tramLine.length > 4) {
     const car = createStreetcar(); scene.add(car.group);
     const tv = [0]; for (let i = 1; i < tramLine.length; i++) tv.push(tv[i - 1] + Math.hypot(tramLine[i][0] - tramLine[i - 1][0], tramLine[i][1] - tramLine[i - 1][1]));
-    const total = tv[tv.length - 1], st = { s: total * 0.3, dir: 1, wait: 0, v: 0 }, bumpers = [-7, 0, 7].map(() => ({ x: 0, z: 0, r: 1.5 }));
+    const total = tv[tv.length - 1], st = { s: total * 0.3, dir: 1, wait: 0, v: 0 }, bumpers = [-7, 0, 7].map(() => ({ x: 0, z: 0, r: 1.5, moving: true }));
     obstacles.push(...bumpers);
     updaters.push((dt) => {
       if (st.wait > 0) { st.wait -= dt; st.v = Math.max(0, st.v - 5 * dt); }
@@ -893,6 +907,8 @@ export async function initRealWorld(app, mapName = 'slu') {
     // the monorail, for racing it: a start gate on the street by each end of the line
     monorail: railRef && { state: railRef.state, total: railRef.total, gates: railRef.ends.map(([x, z]) => { const nr = nearRoad(x, z, 4); return nr ? { x: nr.x, z: nr.z } : { x, z }; }) },
     start, pois, sources, stops: heroStops, coffeeSpots, streetName, nearestRoad, drawMap, credit: data.credit,
+    // for tools/audit.mjs
+    debug: { roads, nearRoad, inBuilding, bounds: B },
     stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length, parked: parkedCount, signs: signCount, iconSpots },
   };
   app.updateWorld = (dt) => { for (const u of updaters) u(dt); };
