@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AVENUES, STREETS } from '../config.js';
-import { buildCarGeometries, carMaterials, shadowTex } from './props.js';
+import { shadowTex } from './props.js';
+import { makeCarSet, CAR_KINDS, CAR_COLORS } from './cars.js';
 import { rng } from './buildings.js';
 
 // Ambient traffic. Cars follow lanes around the street grid, obey the signals,
@@ -8,8 +9,6 @@ import { rng } from './buildings.js';
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];      // N, E, S, W as (dx, dz)
 const AVS = [...AVENUES].sort((a, b) => a.x - b.x);   // index i, west -> east
 const NI = AVS.length, NJ = STREETS.length;           // streets: index j, south -> north
-const CAR_COLORS = [0x0a0a0c, 0x1a1c20, 0x555a60, 0xa9aeb3, 0xdfe2e4, 0x8a1014, 0x10315e, 0x18382d, 0xb9862b, 0xc9c3b2, 0x5b2a6b];
-
 const right = (d) => [-DIRS[d][1], DIRS[d][0]];
 const alongZ = (d) => d === 0 || d === 2;
 const nodeOk = (i, j) => i >= 0 && i < NI && j >= 0 && j < NJ;
@@ -46,9 +45,6 @@ function evalSeg(seg, s, out) {
 export function createTraffic(signals, streetcar, colliders, count = 24) {
   const r = rng(51515);
   const group = new THREE.Group();
-  const kinds = [buildCarGeometries(0), buildCarGeometries(1)];
-  const headMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(11, 10.5, 9) });
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0xffffff });   // per-instance colour carries the brightness
   const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, color: 0x000000, opacity: 0.85 });
 
   const cars = [];
@@ -61,7 +57,7 @@ export function createTraffic(signals, streetcar, colliders, count = 24) {
     const seg = lineSeg(exitPoint(pi, pj, d, lo), stopPoint(i, j, d, lo));
     cars.push({
       i, j, d, lane, seg, s: r() * seg.len, v: 6, cruise: 8.5 + r() * 3.5, crossing: false, nextD: d,
-      x: 0, z: 0, h: 0, stuck: 0, ghost: 0, stun: 0, honk: 0, braking: false, kind: r() < 0.55 ? 0 : 1, color: CAR_COLORS[Math.floor(r() * CAR_COLORS.length)],
+      x: 0, z: 0, h: 0, stuck: 0, ghost: 0, stun: 0, honk: 0, braking: false, kind: Math.floor(r() * CAR_KINDS) % CAR_KINDS, color: CAR_COLORS[Math.floor(r() * CAR_COLORS.length)],
       near: null, collider: { x0: 0, x1: 0, z0: 0, z1: 0, low: true, moving: true },
     });
   }
@@ -73,13 +69,13 @@ export function createTraffic(signals, streetcar, colliders, count = 24) {
   }
 
   // instanced meshes per body style
-  const sets = kinds.map((G, k) => {
+  const C0 = new THREE.Color();
+  const sets = Array.from({ length: CAR_KINDS }, (_, k) => {
     const list = cars.filter(c => c.kind === k);
-    const mk = (geo, mat) => { const m = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length)); m.count = list.length; m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); group.add(m); return m; };
-    const body = mk(G.body, carMaterials.paint), cabin = mk(G.cabin, carMaterials.glass), wheels = mk(G.wheels, carMaterials.tyre), head = mk(G.headl, headMat), tail = mk(G.tail, tailMat);
-    const col = new THREE.Color();
-    list.forEach((c, n) => { body.setColorAt(n, col.setHex(c.color)); tail.setColorAt(n, col.setRGB(3, 0.08, 0.05)); });
-    return { list, parts: [body, cabin, wheels, head, tail], tail };
+    const set = makeCarSet(k, list.length, true, true);
+    list.forEach((c, n) => { set.body.setColorAt(n, C0.setHex(c.color)); set.tail.setColorAt(n, C0.setRGB(3, 0.08, 0.05)); });
+    group.add(...set.all);
+    return { list, set, tail: set.tail };
   });
   const shadows = new THREE.InstancedMesh(new THREE.PlaneGeometry(5.6, 2.9).rotateX(-Math.PI / 2), shadowMat, cars.length);
   shadows.layers.set(1); shadows.frustumCulled = false; shadows.renderOrder = 2; shadows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -180,10 +176,10 @@ export function createTraffic(signals, streetcar, colliders, count = 24) {
       set.list.forEach((c, n) => {
         Q.setFromAxisAngle(UP, -c.h);
         M.compose(V.set(c.x, 0, c.z), Q, S1);
-        for (const p of set.parts) p.setMatrixAt(n, M);
+        set.set.setMatrixAt(n, M);
         set.tail.setColorAt(n, c.braking ? C.setRGB(14, 0.35, 0.2) : C.setRGB(3.2, 0.08, 0.05));
       });
-      for (const p of set.parts) p.instanceMatrix.needsUpdate = true;
+      set.set.commit();
       if (set.tail.instanceColor) set.tail.instanceColor.needsUpdate = true;
     }
     for (const c of cars) { Q.setFromAxisAngle(UP, -c.h); M.compose(V.set(c.x, 0.02, c.z), Q, S1); shadows.setMatrixAt(si++, M); }

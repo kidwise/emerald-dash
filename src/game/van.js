@@ -146,6 +146,41 @@ export function createVanModel() {
   bits.push(new THREE.BoxGeometry(0.14, 0.2, W - 0.1).translate(-2.94, 0.62, 0));
   body.add(new THREE.Mesh(mergeGeometries(bits), trim));
 
+  // exterior detail: arch flares, grille and bumper, wipers, rub strips, handles, roof ribs
+  const det = [], bright = [], ribs = [];
+  for (const ax of [AXLE_F, AXLE_R]) for (const s of [-1, 1]) det.push(new THREE.TorusGeometry(0.535, 0.05, 6, 18, Math.PI).translate(ax, 0.40, s * (hw + 0.012)));
+  det.push(new THREE.BoxGeometry(0.05, 0.30, 1.56).translate(2.935, 0.70, 0));                         // grille panel
+  det.push(new THREE.BoxGeometry(0.2, 0.2, W - 0.02).translate(2.88, 0.50, 0));                        // front bumper
+  det.push(new THREE.BoxGeometry(0.3, 0.07, W - 0.3).translate(-2.98, 0.46, 0));                       // rear step
+  for (const s of [-1, 1]) {
+    det.push(new THREE.BoxGeometry(3.9, 0.065, 0.03).translate(-0.9, 0.93, s * (hw + 0.012)));        // rub strip
+    det.push(new THREE.BoxGeometry(0.7, 0.05, 0.16).translate(1.55, 0.50, s * (hw + 0.04)));          // cab step
+    det.push(quad([1.84, 2.47, s * 0.9], [2.56, 1.66, s * 0.94], [2.60, 1.62, s * 1.0], [1.80, 2.52, s * 0.96]));   // A-pillar
+    bright.push(new THREE.BoxGeometry(0.16, 0.035, 0.03).translate(1.02, 1.42, s * (hw + 0.02)));     // door handles
+    bright.push(new THREE.BoxGeometry(0.16, 0.035, 0.03).translate(-0.35, 1.42, s * (hw + 0.02)));
+  }
+  for (const z of [0.42, -0.30]) det.push(new THREE.BoxGeometry(0.03, 0.03, 0.62).rotateX(0.25).translate(2.44, 1.78, z));   // wipers
+  for (let i = 0; i < 4; i++) bright.push(new THREE.BoxGeometry(0.012, 0.022, 1.40).translate(2.965, 0.60 + i * 0.065, 0));    // grille slats
+  for (let i = 0; i < 7; i++) ribs.push(new THREE.BoxGeometry(0.07, 0.025, W - 0.5).translate(-2.3 + i * 0.5, 2.752, 0));
+  ribs.push(new THREE.CylinderGeometry(0.012, 0.018, 0.55, 5).translate(0.6, 3.0, 0.6));
+  const nonIdx = (l) => mergeGeometries(l.map(g => { const n = g.index ? g.toNonIndexed() : g; n.deleteAttribute('uv'); if (!n.attributes.normal) n.computeVertexNormals(); return n; }));
+  body.add(new THREE.Mesh(nonIdx(det), trim), new THREE.Mesh(nonIdx(bright), chrome), new THREE.Mesh(nonIdx(ribs), paint));
+
+  // number plates, side markers, indicators and reversing lamps
+  const plateMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.9, 0.86) });
+  body.add(new THREE.Mesh(nonIdx([new THREE.BoxGeometry(0.02, 0.13, 0.44).translate(2.99, 0.50, 0), new THREE.BoxGeometry(0.02, 0.13, 0.44).translate(-2.965, 0.86, 0)]), plateMat));
+  const mk = [];
+  for (const s of [-1, 1]) for (const x of [-2.4, -0.9, 0.6]) mk.push(new THREE.BoxGeometry(0.1, 0.035, 0.02).translate(x, 0.86, s * (hw + 0.03)));
+  body.add(new THREE.Mesh(nonIdx(mk), amberMat));
+  const indGeo = (s) => nonIdx([
+    new THREE.BoxGeometry(0.04, 0.07, 0.2).translate(2.955, 0.94, s * 0.96), new THREE.BoxGeometry(0.04, 0.2, 0.075).translate(-2.945, 0.86, s * (hw - 0.09)),
+    new THREE.BoxGeometry(0.07, 0.05, 0.03).translate(2.0, 1.56, s * (hw + 0.02)),
+  ]);
+  const indMats = { L: new THREE.MeshBasicMaterial({ color: 0x1a0c00 }), R: new THREE.MeshBasicMaterial({ color: 0x1a0c00 }) };
+  body.add(new THREE.Mesh(indGeo(-1), indMats.L), new THREE.Mesh(indGeo(1), indMats.R));
+  const revMat = new THREE.MeshBasicMaterial({ color: 0x151515 });
+  body.add(new THREE.Mesh(nonIdx([-1, 1].map(s => new THREE.BoxGeometry(0.03, 0.06, 0.16).translate(-2.948, 0.70, s * 0.62))), revMat));
+
   // wheels
   const wheels = [];
   const tyrePts = [];
@@ -204,7 +239,7 @@ export function createVanModel() {
     body.add(m); beams.push(m);
   }
 
-  return { root, body, wheels, mats, lights, beams, shadow, headMesh, tailMesh };
+  return { root, body, wheels, mats, lights, beams, shadow, headMesh, tailMesh, indMats, revMat };
 }
 
 // ------------------------------------------------------------------------------------------- physics
@@ -301,6 +336,14 @@ export class Van {
     this.roll += (rollT - this.roll) * Math.min(1, dt * 6);
     this.pitch += (pitchT - this.pitch) * Math.min(1, dt * 5);
     this.wheelSpin += (vf / WHEEL_R) * dt;
+    // indicators follow the steering at town speeds; hazards flash after a knock
+    this.clock = (this.clock || 0) + dt;
+    if (this.impact > 0.25) this.hazard = 2.2;
+    this.hazard = Math.max(0, (this.hazard || 0) - dt);
+    const blink = (this.clock * 2.6) % 1 < 0.55;
+    this.indL = blink && (this.hazard > 0 || (input.steer < -0.3 && this.speed < 16 && this.speed > 0.5));
+    this.indR = blink && (this.hazard > 0 || (input.steer > 0.3 && this.speed < 16 && this.speed > 0.5));
+    this.reversing = vf < -0.4;
     this.impact = Math.max(0, this.impact - dt * 2.5);
     this.sync(dt);
   }
@@ -371,6 +414,9 @@ export class Van {
       if (w.front) w.pivot.rotation.y = -this.steer;
       w.spin.rotation.z = -this.wheelSpin;
     }
+    m.indMats.L.color.setRGB(this.indL ? 9 : 0.1, this.indL ? 4.2 : 0.05, this.indL ? 0.3 : 0);
+    m.indMats.R.color.setRGB(this.indR ? 9 : 0.1, this.indR ? 4.2 : 0.05, this.indR ? 0.3 : 0);
+    m.revMat.color.setScalar(this.reversing ? 7 : 0.08);
     m.tailMesh.material.color.setRGB(this.braking ? 16 : 5, this.braking ? 0.4 : 0.12, this.braking ? 0.25 : 0.08);
   }
 }

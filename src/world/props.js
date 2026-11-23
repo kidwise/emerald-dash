@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { AVENUES, STREETS, CURB, LAMP_H, lampSites, Z_NORTH, Z_SOUTH, X_WEST, X_EAST, FOG_DENSITY } from '../config.js';
 import { rng } from './buildings.js';
+import { makeCarSet, CAR_KINDS, CAR_COLORS } from './cars.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3(), tmpS = new THREE.Vector3(1, 1, 1);
@@ -265,49 +266,7 @@ export function createSignals() {
 }
 
 // ---------------------------------------------------------------- parked cars
-function carProfile(kind) {
-  const s = new THREE.Shape();
-  if (kind === 0) {            // saloon
-    s.moveTo(-2.25, 0.32); s.lineTo(-2.3, 0.72); s.quadraticCurveTo(-2.28, 0.95, -1.9, 0.98);
-    s.lineTo(1.25, 0.94); s.quadraticCurveTo(2.2, 0.86, 2.3, 0.62); s.lineTo(2.3, 0.32);
-  } else {                     // SUV / crossover
-    s.moveTo(-2.3, 0.36); s.lineTo(-2.36, 0.85); s.quadraticCurveTo(-2.34, 1.12, -2.0, 1.14);
-    s.lineTo(1.3, 1.1); s.quadraticCurveTo(2.25, 1.0, 2.36, 0.72); s.lineTo(2.36, 0.36);
-  }
-  s.closePath();
-  return s;
-}
-function cabinProfile(kind) {
-  const s = new THREE.Shape();
-  if (kind === 0) { s.moveTo(-1.75, 0.94); s.quadraticCurveTo(-1.3, 1.42, -0.75, 1.44); s.lineTo(0.35, 1.44); s.quadraticCurveTo(0.75, 1.40, 1.3, 0.94); }
-  else { s.moveTo(-2.1, 1.1); s.quadraticCurveTo(-1.95, 1.70, -1.55, 1.72); s.lineTo(0.3, 1.72); s.quadraticCurveTo(0.7, 1.68, 1.35, 1.08); }
-  s.closePath();
-  return s;
-}
-function extrudeX(shape, width, bevel) {
-  const g = new THREE.ExtrudeGeometry(shape, { depth: width - bevel * 2, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelOffset: -bevel, bevelSegments: 3, curveSegments: 10 });
-  return g.translate(0, 0, -(width - bevel * 2) / 2);   // length along x, width along z
-}
-export function buildCarGeometries(kind) {
-  const W = kind === 0 ? 1.82 : 1.92;
-  const body = extrudeX(carProfile(kind), W, 0.09);
-  const cabin = extrudeX(cabinProfile(kind), W - 0.2, 0.07);
-  const wr = kind === 0 ? 0.33 : 0.37;
-  const wheels = mergeGeometries([[-1.42, 1], [-1.42, -1], [1.42, 1], [1.42, -1]].map(([x, s]) =>
-    new THREE.CylinderGeometry(wr, wr, 0.24, 18).rotateX(Math.PI / 2).translate(x, wr, s * (W / 2 - 0.1))));
-  const hy = kind === 0 ? 0.72 : 0.86, hx = kind === 0 ? 2.305 : 2.365;
-  const tail = mergeGeometries([box(0.06, 0.12, 0.5, -hx + 0.015, hy + 0.08, W / 2 - 0.36), box(0.06, 0.12, 0.5, -hx + 0.015, hy + 0.08, -W / 2 + 0.36)]);
-  const headl = mergeGeometries([box(0.07, 0.11, 0.42, hx - 0.012, hy - 0.06, W / 2 - 0.34), box(0.07, 0.11, 0.42, hx - 0.012, hy - 0.06, -W / 2 + 0.34)]);
-  return { body, cabin, wheels, tail, headl, W };
-}
-export const carMaterials = {
-  paint: new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.42, metalness: 0.55, clearcoat: 1.0, clearcoatRoughness: 0.06 }),
-  glass: new THREE.MeshPhysicalMaterial({ color: 0x05080b, roughness: 0.06, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.03, specularIntensity: 1.0, ior: 2.0 }),
-  tyre: new THREE.MeshStandardMaterial({ color: 0x08080a, roughness: 0.75 }),
-  tailOff: new THREE.MeshStandardMaterial({ color: 0x2a0204, roughness: 0.3, emissive: 0x3a0306, emissiveIntensity: 1.2 }),
-  headOff: new THREE.MeshStandardMaterial({ color: 0x9aa4ad, roughness: 0.15, metalness: 0.6 }),
-};
-const CAR_COLORS = [0x0a0a0c, 0x15171b, 0x4a4f55, 0x9ea3a8, 0xd9dcde, 0x7a0e12, 0x0d2a52, 0x14342a, 0x3a2a1a, 0xc8c2b0];
+export { carMaterials } from './cars.js';
 
 export function createParkedCars(colliders) {
   const r = rng(4242);
@@ -329,29 +288,25 @@ export function createParkedCars(colliders) {
     }
   }
   const group = new THREE.Group();
-  const kinds = [buildCarGeometries(0), buildCarGeometries(1)];
-  const per = [[], []];
-  for (const s of slots) per[r() < 0.55 ? 0 : 1].push(s);
+  const per = Array.from({ length: CAR_KINDS }, () => []);
+  for (const s of slots) per[Math.floor(r() * CAR_KINDS) % CAR_KINDS].push(s);
   const col = new THREE.Color();
   per.forEach((list, k) => {
-    const G = kinds[k];
-    const body = new THREE.InstancedMesh(G.body, carMaterials.paint, list.length);
-    const parts = [new THREE.InstancedMesh(G.cabin, carMaterials.glass, list.length), new THREE.InstancedMesh(G.wheels, carMaterials.tyre, list.length),
-      new THREE.InstancedMesh(G.tail, carMaterials.tailOff, list.length), new THREE.InstancedMesh(G.headl, carMaterials.headOff, list.length)];
+    const set = makeCarSet(k, list.length, false);
     list.forEach((s, i) => {
       tmpQ.setFromAxisAngle(UP, s.ry);
-      tmpM.compose(tmpV.set(s.x, 0, s.z), tmpQ, tmpS);
-      body.setMatrixAt(i, tmpM); parts.forEach(p => p.setMatrixAt(i, tmpM));
-      body.setColorAt(i, col.setHex(CAR_COLORS[Math.floor(r() * CAR_COLORS.length)]));
+      tmpM.compose(tmpV.set(s.x, s.y ?? 0, s.z), tmpQ, tmpS);
+      set.setMatrixAt(i, tmpM);
+      set.body.setColorAt(i, col.setHex(CAR_COLORS[Math.floor(r() * CAR_COLORS.length)]));
       const alongX = Math.abs(Math.sin(s.ry)) < 0.5;
-      const hl = 2.4, hw = G.W / 2 + 0.05;
+      const hl = 2.4, hw = set.W / 2 + 0.05;
       colliders.push(alongX ? { x0: s.x - hl, x1: s.x + hl, z0: s.z - hw, z1: s.z + hw, low: true } : { x0: s.x - hw, x1: s.x + hw, z0: s.z - hl, z1: s.z + hl, low: true });
     });
-    [body, ...parts].forEach(m => { m.frustumCulled = false; group.add(m); });
+    group.add(...set.all);
   });
   // soft contact shadows
   const sh = new THREE.InstancedMesh(new THREE.PlaneGeometry(5.6, 2.9).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: shadowTex(), transparent: true, depthWrite: false, color: 0x000000, opacity: 0.85 }), slots.length);
-  slots.forEach((s, i) => { tmpQ.setFromAxisAngle(UP, s.ry); tmpM.compose(tmpV.set(s.x, 0.02, s.z), tmpQ, tmpS); sh.setMatrixAt(i, tmpM); });
+  slots.forEach((s, i) => { tmpQ.setFromAxisAngle(UP, s.ry); tmpM.compose(tmpV.set(s.x, (s.y ?? 0) + 0.02, s.z), tmpQ, tmpS); sh.setMatrixAt(i, tmpM); });
   sh.layers.set(1); sh.frustumCulled = false; sh.renderOrder = 2;
   group.add(sh);
   return { group, slots };
