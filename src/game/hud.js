@@ -25,14 +25,29 @@ export function createHud() {
   const overlay = el('div', 'hud-overlay');
   const card = el('div', 'postcard');
   const promptEl = el('div', 'hud-prompt');
+  // on-screen controls for touch screens (also shown with ?touch=1)
+  const touch = { left: false, right: false, gas: false, brake: false, drift: false, onThrow: null };
+  const pad = el('div', 'hud-touch');
+  const tbtn = (cls, label, key) => {
+    const b = el('button', 'tb ' + cls, label); b.type = 'button'; b.tabIndex = -1;
+    const set = (v) => (e) => { e.preventDefault(); if (key === 'throw') { if (v && touch.onThrow) touch.onThrow(); } else touch[key] = v; b.classList.toggle('on', v); };
+    b.addEventListener('pointerdown', set(true)); for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, set(false));
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    return b;
+  };
+  const tl = el('div', 'tg left'), tr = el('div', 'tg right');
+  tl.append(tbtn('', '◀', 'left'), tbtn('', '▶', 'right'));
+  tr.append(tbtn('small', 'DRIFT', 'drift'), tbtn('small', 'BRAKE', 'brake'), tbtn('big throw', 'THROW', 'throw'), tbtn('big', 'GO', 'gas'));
+  pad.append(tl, tr);
+  if (matchMedia('(pointer: coarse)').matches || new URLSearchParams(location.search).get('touch')) root.classList.add('touch');
   const sound = el('button', 'hud-sound'); sound.type = 'button'; sound.tabIndex = -1;
-  root.append(top, bottom, pins, pops, toasts, card, promptEl, overlay, sound);
+  root.append(top, bottom, pins, pops, toasts, card, promptEl, pad, overlay, sound);
 
   const q = (p, s) => p.querySelector(s);
   const state = { pinEls: [] };
 
   const api = {
-    root,
+    root, touch,
     setPlaying(on) { root.classList.toggle('playing', on); },
     setScore(v, combo) {
       q(score, '.val').textContent = Math.round(v).toLocaleString();

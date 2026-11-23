@@ -57,6 +57,18 @@ html, body { margin: 0; height: 100%; background: #05080d; overflow: hidden; }
 #hud:not(.playing) .hud-sound { top: 22px; }
 #hud.looking .hud-sound { opacity: 0.35; }
 @media (max-width: 760px) { .hud-sound { top: 186px; right: 26px; } }
+.hud-touch { display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 0; }
+#hud.touch.playing .hud-touch { display: block; }
+#hud.touch .hud-hint, #hud.touch .hud-street { display: none; }
+#hud.touch .hud-speed { position: absolute; left: 0; bottom: auto; top: 86px; }
+#hud.touch .hud-bottom { top: 22px; bottom: auto; }
+.tg { position: absolute; bottom: 22px; display: flex; gap: 12px; align-items: flex-end; }
+.tg.left { left: 22px; } .tg.right { right: 22px; }
+.tb { pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; width: 84px; height: 84px; border-radius: 50%; font: 800 26px var(--cond); letter-spacing: 0.06em; color: var(--ink); background: rgba(8, 14, 24, 0.5); border: 2px solid rgba(234, 244, 255, 0.4); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.tb.small { width: 62px; height: 62px; font-size: 12px; }
+.tb.big { width: 96px; height: 96px; font-size: 20px; }
+.tb.throw { border-color: var(--cyan); color: var(--cyan); }
+.tb.on { background: rgba(234, 244, 255, 0.3); transform: scale(0.95); }
 .modes { display: flex; gap: 12px; flex-wrap: wrap; }
 button.go.alt { color: var(--ink); background: rgba(234, 244, 255, 0.10); border: 1px solid rgba(234, 244, 255, 0.35); box-shadow: none; }
 button.go.alt small { background: rgba(234, 244, 255, 0.14); }

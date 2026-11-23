@@ -76,10 +76,11 @@ export function byChunk(items) {
   }
   return [...map.values()];
 }
-export function registerChunk(list, objs) {
+// range = how far away (metres) the tile is still drawn
+export function registerChunk(list, objs, range = 440) {
   const x = list.reduce((a, i) => a + i.x, 0) / list.length, z = list.reduce((a, i) => a + i.z, 0) / list.length;
   for (const o of objs) { o.frustumCulled = true; if (o.computeBoundingSphere) o.computeBoundingSphere(); }
-  chunks.push({ objs, x, z });
+  chunks.push({ objs, x, z, range });
 }
 
 export function buildLamps(sites, obstacles) {

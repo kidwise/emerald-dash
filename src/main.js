@@ -90,6 +90,7 @@ function frame() {
     // adaptive resolution: trade pixels for frame rate on slower GPUs
     if (!params.get('dpr') && app.time > 4) {
       slow = fps < 44 ? slow + 1 : 0;
+      if (slow >= 4 && pixelRatio <= 0.7 && (app.detail ?? 1) > 0.5) { app.detail = (app.detail ?? 1) - 0.25; slow = 0; }   // resolution is already at its floor: draw less
       if (slow >= 4 && pixelRatio > 0.7) { pixelRatio = Math.max(0.7, pixelRatio - 0.2); renderer.setPixelRatio(pixelRatio); resize(); slow = 0; }
     }
   }

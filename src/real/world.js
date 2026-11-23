@@ -129,7 +129,9 @@ export async function initRealWorld(app, mapName = 'slu') {
   });
 
   const pos = [], uv = [], info = [], idx = [];
+  const onBrick = (x, z) => { if (!pikeT) return false; const [lx, lz] = pikeT.toLocal(x, z); return lx > -449 && lx < -431 && lz > 440 && lz < 712; };
   roads.forEach((rd, ri) => {
+    if (pikeT && rd.name === 'Pike Place') return;       // the market street is laid in brick by hand
     const base = pos.length / 3, half = rd.hw + 0.3, y = 0.10 + (ri % 32) * 0.0008;
     rd.pts.forEach((p, i) => {
       const a = rd.pts[Math.max(0, i - 1)], b = rd.pts[Math.min(rd.pts.length - 1, i + 1)];
@@ -145,6 +147,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   });
   // a disc of plain asphalt over every junction hides the overlaps
   for (const [k, R] of junctionR) {
+    if (onBrick(...k.split(',').map(Number))) continue;
     const [x, z] = k.split(',').map(Number), base = pos.length / 3, rad = R + 0.6, N = 14;
     pos.push(x, H(x, z) + 0.14, z); uv.push(0, 0); info.push(rad, 1, -1, 0);
     for (let i = 0; i <= N; i++) { const a = (i / N) * Math.PI * 2, px = x + Math.cos(a) * rad, pz = z + Math.sin(a) * rad; pos.push(px, H(px, pz) + 0.14, pz); uv.push(0, 0); info.push(rad, 1, -1, 0); if (i) idx.push(base, base + i + 1, base + i); }
@@ -209,7 +212,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     const gh = Math.min(Hb * 0.6, style === STYLE.RESI ? 4.6 : 5.4);
     const mohai = /Naval Reserve Armory/.test(b.n);
     if (mohai) b.n = 'MOHAI';
-    const o = mohai ? { style: STYLE.BRICK, seed: 3.3, floorH: 12.4, bayW: 5.2, groundH: 2.0, lit: 0.92, a: 0, tint: [0.46, 0.45, 0.42] } : {
+    const o = mohai ? { style: STYLE.BRICK, seed: 3.3, floorH: 6.2, bayW: 5.2, groundH: 2.0, lit: 0.92, a: 0, tint: [0.46, 0.45, 0.42] } : {
       style, seed: r() * 50, groundH: gh, lit: style === STYLE.RESI ? 0.36 : 0.5, a: r() < 0.6 ? 1 : 0, b: r(),
       floorH: style === STYLE.CURTAIN ? 4.1 : style === STYLE.BRICK ? 3.9 : style === STYLE.RIBBON ? 4.6 : 3.05,
       bayW: style === STYLE.CURTAIN ? 1.5 : style === STYLE.BRICK ? 3.3 : style === STYLE.RIBBON ? 1.6 : 3.4,
@@ -268,7 +271,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     const ld = new THREE.TextureLoader(), bt = (f, srgb) => { const t = ld.load(f); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(16 / 2.6, 276 / 2.6); t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
     const bmap = bt('/assets/tex/brick_pavement_02_diff.jpg', true);
     const street = new THREE.Mesh(new THREE.PlaneGeometry(16, 276).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: bmap, normalMap: bt('/assets/tex/brick_pavement_02_nor.jpg', false), color: 0x8f8f8f, roughness: 0.3, emissiveMap: bmap, emissive: 0xffc890, emissiveIntensity: 0.3 }));
-    street.position.set(-440, PIKE.Y + 0.1, 574); street.layers.set(1); inner.add(street);
+    street.position.set(-440, PIKE.Y + 0.2, 574); street.layers.set(1); inner.add(street);
     const mk = createMarket(to, { core: true });
     inner.add(mk.group); glow.push(...mk.glow); updaters.push(() => mk.update(app.time));
     mk.group.remove(mk.far.points);
@@ -300,7 +303,14 @@ export async function initRealWorld(app, mapName = 'slu') {
     const LEAF = [0x1f6a2c, 0x2f8a3a, 0x175224, 0x4a9a3a, 0x2a7a4a];
     for (const [off, R] of [[0, 19.5], [-23, 15.5], [23, 15.5]]) {
       const cx = sx + ax * off, cz = sz + az * off, cy = baseY + R * 0.42;
-      const edge = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(R, 2), 1).attributes.position.array;
+      const tri = new THREE.IcosahedronGeometry(R, R > 17 ? 3 : 2).attributes.position.array, cen = [], byEdge = new Map(), edgeList = [];
+      const vk = (i) => `${tri[i].toFixed(2)},${tri[i + 1].toFixed(2)},${tri[i + 2].toFixed(2)}`;
+      for (let f = 0; f < tri.length; f += 9) {
+        const c = new THREE.Vector3((tri[f] + tri[f + 3] + tri[f + 6]) / 3, (tri[f + 1] + tri[f + 4] + tri[f + 7]) / 3, (tri[f + 2] + tri[f + 5] + tri[f + 8]) / 3).setLength(R); cen.push(c);
+        const ks = [vk(f), vk(f + 3), vk(f + 6)];
+        for (let e = 0; e < 3; e++) { const a = ks[e], b = ks[(e + 1) % 3], key2 = a < b ? a + '|' + b : b + '|' + a; if (byEdge.has(key2)) { const o = cen[byEdge.get(key2)]; edgeList.push(o.x, o.y, o.z, c.x, c.y, c.z); } else byEdge.set(key2, cen.length - 1); }
+      }
+      const edge = edgeList;
       for (let i = 0; i < edge.length; i += 6) { if (cy + edge[i + 1] < baseY - 0.3 && cy + edge[i + 4] < baseY - 0.3) continue; lines.push(cx + edge[i], cy + edge[i + 1], cz + edge[i + 2], cx + edge[i + 3], cy + edge[i + 4], cz + edge[i + 5]); }
       glass.push(new THREE.SphereGeometry(R * 0.99, 36, 22).translate(cx, cy, cz));
       for (let n = 0; n < 150; n++) {
@@ -324,7 +334,11 @@ export async function initRealWorld(app, mapName = 'slu') {
     const lm = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), leafMat, leaves.length), LM = new THREE.Matrix4(), LC = new THREE.Color();
     leaves.forEach((q, n) => { LM.makeScale(q.s, q.s * 0.8, q.s).setPosition(q.p[0], q.p[1], q.p[2]); lm.setMatrixAt(n, LM); lm.setColorAt(n, LC.setHex(q.c)); });
     lm.frustumCulled = false; scene.add(lm);
-    const shell = new THREE.Mesh(mergeGeometries(glass), new THREE.MeshPhysicalMaterial({ color: 0xbfe8dc, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.22, depthWrite: false, emissive: 0x3a5a4a, emissiveIntensity: 0.6 }));
+    const shell = new THREE.Mesh(mergeGeometries(glass), new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - wp.xyz); gl_Position = projectionMatrix * viewMatrix * wp; }',
+      fragmentShader: 'varying vec3 vN; varying vec3 vV; void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.2); gl_FragColor = vec4(vec3(0.55, 0.85, 0.9) * (0.05 + 0.6 * f), 1.0); }',
+    }));
     shell.frustumCulled = false; shell.renderOrder = 3; scene.add(shell);
     const grow = createGlowPoints(gp, gc, gs, gph, { twinkle: 0.1 }); scene.add(grow.points); glow.push(grow);
     const nr = nearRoad(sx, sz, 3);
@@ -450,7 +464,7 @@ export async function initRealWorld(app, mapName = 'slu') {
       const sh = new THREE.InstancedMesh(shGeo, shMat, list.length);
       list.forEach((q, n) => sh.setMatrixAt(n, mat(q, 0.03)));
       sh.layers.set(1); sh.renderOrder = 2; scene.add(sh); objs.push(sh);
-      registerChunk(list, objs);
+      registerChunk(list, objs, 300);
     }
     parkedCount = spots.length;
   }
@@ -852,7 +866,9 @@ export async function initRealWorld(app, mapName = 'slu') {
   updaters.push(() => {
     const t = app.time, cp = app.camera.position;
     rain.uniforms.uTime.value = t;
-    for (const c of chunks) { const vis = (c.x - cp.x) ** 2 + (c.z - cp.z) ** 2 < 440 * 440; for (const o of c.objs) o.visible = vis; }
+    const dk = app.detail ?? 1;      // main.js lowers this on slow machines
+    for (const c of chunks) { const rg = c.range * dk, vis = (c.x - cp.x) ** 2 + (c.z - cp.z) ** 2 < rg * rg; for (const o of c.objs) o.visible = vis; }
+    peds.group.visible = dk > 0.7;
     const sc = renderer.domElement.height * app.camera.projectionMatrix.elements[5] * 0.5;
     for (const gl of glow) { gl.uniforms.uTime.value = t; gl.uniforms.uScale.value = sc; }
   });

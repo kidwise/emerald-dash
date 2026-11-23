@@ -344,6 +344,7 @@ export function initGame(app) {
   const toggleSound = () => { const muted = audio.toggleMute(); hud.setSound(!muted); try { localStorage.setItem('emerald-dash-muted', muted ? '1' : ''); } catch { /* ignore */ } hud.toast(muted ? 'Sound off' : 'Sound on'); };
   try { if (localStorage.getItem('emerald-dash-muted')) audio.muted = true; } catch { /* ignore */ }
   hud.soundButton(toggleSound, !audio.muted);
+  hud.touch.onThrow = () => { if (S.mode !== 'play') return; if (S.toss) { if (S.post) { S.post = null; hud.postcard(null); } catchToss(); } else if (S.post) { S.post = null; hud.postcard(null); } else throwParcel(); };
   addEventListener('keydown', (e) => {
     if (e.repeat) return;
     keys.add(e.code);
@@ -530,6 +531,10 @@ export function initGame(app) {
     input.steer = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     input.drift = keys.has('ShiftLeft') || keys.has('ShiftRight');
     // gamepad: left stick steers, triggers drive and brake, A throws, B or RB drifts, Start begins a shift
+    const tc = hud.touch;
+    if (tc.left || tc.right) input.steer = (tc.right ? 1 : 0) - (tc.left ? 1 : 0);
+    if (tc.gas || tc.brake) input.throttle = (tc.gas ? 1 : 0) - (tc.brake ? 1 : 0);
+    if (tc.drift) input.drift = true;
     const pad = navigator.getGamepads ? [...navigator.getGamepads()].find(g => g && g.connected) : null;
     if (pad) {
       const ax = pad.axes[0] || 0, rt = pad.buttons[7] ? pad.buttons[7].value : 0, lt = pad.buttons[6] ? pad.buttons[6].value : 0;

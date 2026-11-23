@@ -27,6 +27,7 @@ npm run build      # production bundle in dist/
 ```
 
 Needs a WebGL2 browser with a real GPU. Resolution drops automatically if the frame rate falls below ~45 fps.
+If it is still slow at the lowest resolution, distant parked cars, trees and lamps are dropped and then pedestrians.
 
 ## Controls
 
@@ -41,6 +42,9 @@ Needs a WebGL2 browser with a real GPU. Resolution drops automatically if the fr
 | T | | Toggle rain / clear evening |
 | Esc | | End the session |
 | M, or the speaker button | | Sound on / off (remembered) |
+
+On a touch screen, on-screen buttons appear for steering, GO, BRAKE, DRIFT and THROW (add `?touch=1` to try them
+with a mouse).
 
 The white marker on the ground shows where a parcel thrown *now* would land; it carries the van's speed,
 so release as the marker crosses the glowing ring. Faster throws, dead-centre drops and unbroken streaks score more.
