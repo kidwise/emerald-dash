@@ -5,7 +5,18 @@ import { createAudio } from './audio.js';
 import { AVENUES, STREETS, CURB, Z_SOUTH, Z_NORTH, LAKE_Z } from '../config.js';
 
 const SHIFT_TIME = 150, ORDERS = 10, THROW_T = 0.8, GRAV = 18, RANGE = 36;
-const CYAN = new THREE.Color(0.25, 2.0, 2.4);
+// job types: colour, HUD colour and tag
+const KINDS = {
+  parcel: { col: [0.25, 2.0, 2.4], css: '#55f0ff', tag: '', base: 100 },
+  rush: { col: [2.8, 0.30, 0.95], css: '#ff5a9a', tag: 'RUSH', base: 100 },
+  pickup: { col: [2.6, 1.5, 0.2], css: '#ffc247', tag: 'PICK UP', base: 0 },
+  grocery: { col: [0.5, 2.4, 0.55], css: '#6dff8f', tag: 'GROCERIES', base: 320 },
+  tram: { col: [1.7, 0.7, 2.8], css: '#c77dff', tag: 'STREETCAR', base: 350 },
+  boat: { col: [0.6, 1.3, 2.9], css: '#7fb6ff', tag: 'DOCK', base: 300 },
+};
+const TRAM_ROOF = 3.55, DOCK_Y = -0.07;
+const DOCKS = [[30, LAKE_Z - 28, 5, 56], [78, LAKE_Z - 34, 5, 68], [126, LAKE_Z - 24, 4, 48], [54, LAKE_Z - 54, 52, 3.5]];
+const onDock = (x, z) => (x > -112 && x < -22 && z > LAKE_Z - 78) || DOCKS.some(([dx, dz, w, d]) => Math.abs(x - dx) < w / 2 && Math.abs(z - dz) < d / 2);
 
 const POIS = [
   { name: 'Whole Foods Market', sub: 'Westlake Ave & Denny Way', x: -30, z: 258, r: 34 },
@@ -98,30 +109,51 @@ export function initGame(app) {
   const iconGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(0.9, 0.9, 0.9));
   const beamMat = () => new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    uniforms: { uK: { value: 1 }, uTime: { value: 0 } },
+    uniforms: { uK: { value: 1 }, uTime: { value: 0 }, uColor: { value: new THREE.Color(0.2, 0.95, 1.15) } },
     vertexShader: /* glsl */`varying float vH; varying vec3 vN; varying vec3 vV;
       void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vH = position.y / 30.0; vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - wp.xyz); gl_Position = projectionMatrix * viewMatrix * wp; }`,
-    fragmentShader: /* glsl */`uniform float uK; uniform float uTime; varying float vH; varying vec3 vN; varying vec3 vV;
-      void main(){ float rim = pow(abs(dot(normalize(vN), normalize(vV))), 1.5); float a = rim * pow(clamp(1.0 - vH, 0.0, 1.0), 1.8) * (0.85 + 0.3 * sin(uTime * 4.0 - vH * 22.0)) * uK; gl_FragColor = vec4(vec3(0.20, 0.95, 1.15) * a, 1.0); }`,
+    fragmentShader: /* glsl */`uniform float uK; uniform float uTime; uniform vec3 uColor; varying float vH; varying vec3 vN; varying vec3 vV;
+      void main(){ float rim = pow(abs(dot(normalize(vN), normalize(vV))), 1.5); float a = rim * pow(clamp(1.0 - vH, 0.0, 1.0), 1.8) * (0.85 + 0.3 * sin(uTime * 4.0 - vH * 22.0)) * uK; gl_FragColor = vec4(uColor * a, 1.0); }`,
   });
   const targets = [];
-  const makeTarget = (lot) => {
+  const doorOf = (lot) => {
     const cx = (lot.x0 + lot.x1) / 2, cz = (lot.z0 + lot.z1) / 2;
     const av = AVENUES.reduce((b, a) => Math.abs(a.x - cx) < Math.abs(b.x - cx) ? a : b);
     const nx = av.x > cx ? 1 : -1;
-    const x = (nx > 0 ? lot.x1 : lot.x0) + nx * 2.4;
+    return { x: (nx > 0 ? lot.x1 : lot.x0) + nx * 2.4, z: cz };
+  };
+  const setKind = (t, kind) => {
+    t.kind = kind; t.col.setRGB(...KINDS[kind].col); t.css = KINDS[kind].css; t.tag = KINDS[kind].tag;
+    t.bm.uniforms.uColor.value.copy(t.col).multiplyScalar(0.48);
+    t.icon.material.color.copy(t.col).multiplyScalar(1.25);
+  };
+  const makeTarget = (kind, x, z, y, name) => {
     const g = new THREE.Group();
-    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: CYAN.clone(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    const disc = new THREE.Mesh(discGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.03, 0.22, 0.28), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const disc = new THREE.Mesh(discGeo, new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     ring.position.y = disc.position.y = 0.03; ring.layers.set(1); disc.layers.set(1);
     const bm = beamMat();
     const beam = new THREE.Mesh(beamGeo, bm);
-    const icon = new THREE.LineSegments(iconGeo, new THREE.LineBasicMaterial({ color: new THREE.Color(0.6, 2.6, 3.0) }));
+    const icon = new THREE.LineSegments(iconGeo, new THREE.LineBasicMaterial());
     icon.position.y = 3.4;
     g.add(ring, disc, beam, icon);
-    g.position.set(x, CURB, cz);
+    g.position.set(x, y, z);
     scene.add(g);
-    return { x, z: cz, name: lot.name, g, ring, disc, beam, bm, icon, done: false, fade: 0 };
+    const t = { x, z, y, vx: 0, vz: 0, name, g, ring, disc, beam, bm, icon, col: new THREE.Color(), done: false, failed: false, fade: 0 };
+    setKind(t, kind);
+    return t;
+  };
+  // how far a landing point is from a job's sweet spot (below 1.3 is perfect, below 3.4 counts)
+  const missOf = (t, x, z, lead) => {
+    const px = t.x + t.vx * lead, pz = t.z + t.vz * lead;
+    if (t.kind === 'tram') return Math.max(Math.abs(x - px) * 2.0, Math.abs(z - pz) * 0.33);
+    return Math.hypot(x - px, z - pz);
+  };
+  const surfaceY = (x, z) => {
+    const tr = world.streetcar.state;
+    if (Math.abs(x - tr.x) < 1.5 && Math.abs(z - tr.z) < 9.9) return TRAM_ROOF;
+    if (z < LAKE_Z - 0.6) return onDock(x, z) ? DOCK_Y : -0.62;
+    return groundHeight(x, z);
   };
   const clearTargets = () => { for (const t of targets) scene.remove(t.g); targets.length = 0; };
 
@@ -173,15 +205,30 @@ export function initGame(app) {
   const startShift = () => {
     audio.start(); audio.play('start');
     clearTargets();
-    const lots = world.buildings.lots.filter(l => l.name && (l.z0 + l.z1) / 2 < Z_SOUTH);
+    const lots = world.buildings.lots.filter(l => l.name && l.type !== 'grocery' && (l.z0 + l.z1) / 2 < Z_SOUTH);
     for (let i = lots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [lots[i], lots[j]] = [lots[j], lots[i]]; }
-    lots.slice(0, ORDERS).forEach(l => targets.push(makeTarget(l)));
+    const atDoor = (kind, lot) => { const d = doorOf(lot); return makeTarget(kind, d.x, d.z, CURB, lot.name); };
+    lots.slice(0, 6).forEach(l => targets.push(atDoor('parcel', l)));
+    const pick = makeTarget('pickup', -40, STREETS[0].z + 5.3, 0, 'Whole Foods Market'); pick.dest = lots[6];
+    const tr = world.streetcar.state;
+    targets.push(pick, makeTarget('tram', tr.x, tr.z, TRAM_ROOF, 'Streetcar roof'), makeTarget('boat', 30, LAKE_Z - 9, DOCK_Y, 'Houseboat dock'));
     van.reset(1.9, 238, -Math.PI / 2);
-    Object.assign(S, { mode: 'play', time: SHIFT_TIME, score: 0, streak: 0, lastDelivery: -99, delivered: 0, perfect: 0, bestCombo: 0, topSpeed: 0, throwCd: 0, camHeading: van.heading, elapsed: 0 });
+    Object.assign(S, { mode: 'play', time: SHIFT_TIME, score: 0, streak: 0, lastDelivery: -99, delivered: 0, resolved: 0, perfect: 0, bestCombo: 0, topSpeed: 0, throwCd: 0,
+      camHeading: van.heading, elapsed: 0, rush: null, rushLot: lots[7], rushAt: 18 + Math.random() * 12, cargo: null });
     for (const p of pickups) { p.active = true; p.g.visible = true; }
-    for (const p of parcels) { p.active = false; p.m.visible = false; }
-    hud.hideOverlay(); hud.setPlaying(true); hud.setScore(0, 0);
-    hud.toast('Shift started', `${ORDERS} parcels to deliver`);
+    for (const p of parcels) { p.active = false; p.m.visible = false; p.ride = false; }
+    hud.hideOverlay(); hud.setPlaying(true); hud.setScore(0, 0); hud.setCargo(null);
+    hud.toast('Shift started', 'Parcels, a grocery run, the streetcar and a dock drop');
+  };
+  const spawnRush = () => {
+    const t = (() => { const d = doorOf(S.rushLot); return makeTarget('rush', d.x, d.z, CURB, S.rushLot.name); })();
+    t.expire = 36; targets.push(t); S.rush = t;
+    hud.toast('Rush order!', `${t.name} · 36 s · triple pay`, 'rush'); audio.play('bell');
+  };
+  const resolve = () => {
+    S.resolved++;
+    if (!S.rush && S.resolved >= ORDERS - 1 && S.mode === 'play') spawnRush();
+    if (S.resolved >= ORDERS) setTimeout(() => S.mode === 'play' && endShift(true), 900);
   };
   const endShift = (won) => {
     S.mode = 'end';
@@ -218,15 +265,15 @@ export function initGame(app) {
   function computeAim() {
     const fx = Math.cos(van.heading), fz = Math.sin(van.heading), rx = -fz, rz = fx;
     let bestT = null, bd = RANGE * RANGE;
-    for (const t of targets) { if (t.done) continue; const d = (t.x - van.pos.x) ** 2 + (t.z - van.pos.z) ** 2; if (d < bd) { bd = d; bestT = t; } }
+    for (const t of targets) { if (t.done || t.kind === 'pickup') continue; const d = (t.x - van.pos.x) ** 2 + (t.z - van.pos.z) ** 2; if (d < bd) { bd = d; bestT = t; } }
     aim.target = bestT;
     if (bestT) {
-      const lat = (bestT.x - van.pos.x) * rx + (bestT.z - van.pos.z) * rz;
+      const lat = (bestT.x + bestT.vx * THROW_T - van.pos.x) * rx + (bestT.z + bestT.vz * THROW_T - van.pos.z) * rz;
       aim.side = lat >= 0 ? 1 : -1; aim.L = THREE.MathUtils.clamp(Math.abs(lat), 3.2, 17);
     } else { aim.side = 1; aim.L = 7; }
     aim.land.set(van.pos.x + rx * aim.side * aim.L + van.vel.x * THROW_T, 0, van.pos.z + rz * aim.side * aim.L + van.vel.y * THROW_T);
-    aim.land.y = groundHeight(aim.land.x, aim.land.z);
-    aim.ok = bestT ? Math.hypot(aim.land.x - bestT.x, aim.land.z - bestT.z) : 99;
+    aim.land.y = bestT && bestT.kind === 'tram' ? TRAM_ROOF : bestT && bestT.kind === 'boat' ? DOCK_Y : groundHeight(aim.land.x, aim.land.z);
+    aim.ok = bestT ? missOf(bestT, aim.land.x, aim.land.z, THROW_T) : 99;
   }
 
   function throwParcel() {
@@ -246,23 +293,37 @@ export function initGame(app) {
 
   function land(p) {
     p.landed = true;
+    const px = p.m.position.x, pz = p.m.position.z;
+    if (pz < LAKE_Z - 0.6 && !onDock(px, pz)) {       // into the lake
+      for (let i = 0; i < 20; i++) { const a = Math.random() * 6.28; emit(px, -0.4, pz, Math.cos(a) * 2.5, 3 + Math.random() * 4, Math.sin(a) * 2.5, 0.6, 0.2, 0.5, 0.7, 0.9, 12, 1); }
+      p.active = false; p.m.visible = false;
+    }
     let hit = null, hd = 1e9;
-    for (const t of targets) { if (t.done) continue; const d = Math.hypot(t.x - p.m.position.x, t.z - p.m.position.z); if (d < hd) { hd = d; hit = t; } }
-    const sp = project(p.m.position.x, p.m.position.y + 1.2, p.m.position.z);
+    for (const t of targets) { if (t.done || t.kind === 'pickup') continue; const d = missOf(t, px, pz, 0); if (d < hd) { hd = d; hit = t; } }
+    const sp = project(px, p.m.position.y + 1.2, pz);
     if (hit && hd < 3.4) {
-      const perfect = hd < 1.3;
+      const perfect = hd < 1.3, K = KINDS[hit.kind];
       hit.done = true; hit.fade = 1;
       S.streak = (S.elapsed - S.lastDelivery < 16) ? S.streak + 1 : 1;
       S.lastDelivery = S.elapsed; S.bestCombo = Math.max(S.bestCombo, S.streak);
       const mph = p.speedAtThrow * 2.237;
-      const pts = Math.round((100 + Math.min(140, mph * 2.2)) * (perfect ? 2 : 1) * (1 + 0.5 * (S.streak - 1)) / 5) * 5;
-      S.score += pts; S.delivered++; S.time += 6; if (perfect) S.perfect++;
+      let base = K.base + Math.min(140, mph * 2.2), note = perfect ? 'Perfect drop' : 'Delivered', bonus = 6;
+      if (hit.kind === 'rush') { base *= 3; bonus = 10; note = 'Rush delivered · triple pay'; }
+      if (hit.kind === 'tram') { p.ride = true; note = 'Landed on the streetcar'; }
+      if (hit.kind === 'boat') note = 'Dock drop';
+      if (hit.kind === 'grocery') {
+        if (mph > 20) { S.cargo.cond = Math.max(5, S.cargo.cond - 40); hud.pop(sp.x, sp.y - 34, 'THROWN TOO HARD', 'miss'); }
+        base = K.base * S.cargo.cond / 100; note = `Groceries ${Math.round(S.cargo.cond)}% intact`;
+        S.cargo = null; hud.setCargo(null);
+      }
+      const pts = Math.round(base * (perfect ? 2 : 1) * (1 + 0.5 * (S.streak - 1)) / 5) * 5;
+      S.score += pts; S.delivered++; S.time += bonus; if (perfect) S.perfect++;
       hud.pop(sp.x, sp.y, `${perfect ? 'PERFECT ' : ''}+${pts}`, perfect ? 'perfect' : '');
       hud.setScore(S.score, S.streak); hud.bumpScore();
-      hud.toast(hit.name, perfect ? 'Perfect drop · +6 s' : 'Delivered · +6 s');
+      hud.toast(hit.name, `${note} · +${bonus} s`);
       audio.play(perfect ? 'perfect' : 'good');
-      for (let i = 0; i < 46; i++) { const a = Math.random() * 6.28, v = 3 + Math.random() * 7; emit(hit.x, CURB + 0.3, hit.z, Math.cos(a) * v, 4 + Math.random() * 9, Math.sin(a) * v, 0.7 + Math.random() * 0.6, 0.22, 0.4, 2.6, 3.0, 12, 1.2); }
-      if (S.delivered >= ORDERS) setTimeout(() => S.mode === 'play' && endShift(true), 900);
+      for (let i = 0; i < 46; i++) { const a = Math.random() * 6.28, v = 3 + Math.random() * 7; emit(hit.x, hit.y + 0.3, hit.z, Math.cos(a) * v, 4 + Math.random() * 9, Math.sin(a) * v, 0.7 + Math.random() * 0.6, 0.22, hit.col.r * 1.2, hit.col.g * 1.2, hit.col.b * 1.2, 12, 1.2); }
+      resolve();
     } else {
       audio.play('thud');
       if (hit && hd < 9) { hud.pop(sp.x, sp.y, 'MISSED', 'miss'); S.streak = 0; hud.setScore(S.score, 0); }
@@ -325,7 +386,7 @@ export function initGame(app) {
   const headWorld = new THREE.Vector3(), tmp = new THREE.Vector3();
   let frameN = 0;
   hud.showTitle(startShift);
-  hud.setClock(SHIFT_TIME, 0, ORDERS);
+  hud.setClock(SHIFT_TIME, []);
   van.reset(1.9, 238, -Math.PI / 2); van.sync();
   if (params.get('autostart')) startShift();
 
@@ -412,17 +473,45 @@ export function initGame(app) {
     }
     for (const p of pickups) { p.g.rotation.y += dt * 1.6; p.g.position.y = 1.0 + Math.sin(app.time * 2.2 + p.x) * 0.16; }
 
+    // jobs that change over time: the grocery pick-up, the rush order, the moving streetcar
+    if (playing) {
+      const tr = world.streetcar.state;
+      if (!S.rush && S.elapsed > S.rushAt) spawnRush();
+      for (const t of targets) {
+        if (t.done) continue;
+        if (t.kind === 'tram') { t.x = tr.x; t.z = tr.z; t.vz = tr.dir * tr.v; t.g.position.set(t.x, TRAM_ROOF, t.z); }
+        if (t.kind === 'pickup' && Math.hypot(van.pos.x - t.x, van.pos.z - t.z) < 4.6) {
+          const d = doorOf(t.dest); t.x = d.x; t.z = d.z; t.y = CURB; t.name = t.dest.name; t.g.position.set(t.x, CURB, t.z);
+          setKind(t, 'grocery'); S.cargo = { cond: 100 }; hud.setCargo(100);
+          hud.toast('Groceries loaded', `For ${t.name} · drive gently, hand over below 20 mph`, 'place'); audio.play('place');
+        }
+        if (t.expire !== undefined) {
+          t.expire -= dt;
+          if (t.expire <= 0) { t.done = true; t.failed = true; t.fade = 1; S.streak = 0; hud.setScore(S.score, 0); hud.toast('Rush order expired', t.name, 'rush'); audio.play('miss'); resolve(); }
+        }
+      }
+      if (S.cargo) {
+        const g = Math.abs(van.yawRate * (van.vf || 0));
+        if (g > 8.5) S.cargo.cond = Math.max(5, S.cargo.cond - (g - 8.5) * dt * 2.4);
+        if (van.impact > 0.9 * (S.cargo.lastImpact ?? 9) + 0.15) S.cargo.cond = Math.max(5, S.cargo.cond - van.impact * 30);
+        S.cargo.lastImpact = van.impact;
+        hud.setCargo(S.cargo.cond);
+      }
+    }
+
     // parcels in flight
     for (const p of parcels) {
       if (!p.active) continue;
+      if (p.ride) { const tr = world.streetcar.state; p.m.position.z += tr.dir * tr.v * dt; p.rest += dt; if (p.rest > 12) { p.active = false; p.m.visible = false; p.ride = false; } continue; }
       if (!p.landed || p.vel.lengthSq() > 0.05) {
         p.vel.y -= GRAV * dt;
         p.m.position.addScaledVector(p.vel, dt);
         p.m.rotation.x += p.spin.x * dt; p.m.rotation.y += p.spin.y * dt; p.m.rotation.z += p.spin.z * dt;
-        const gy = groundHeight(p.m.position.x, p.m.position.z) + 0.24;
-        if (p.m.position.y < gy) {
+        const gy = surfaceY(p.m.position.x, p.m.position.z) + 0.24;
+        if (p.m.position.y < gy && p.vel.y < 0) {
           p.m.position.y = gy;
           if (!p.landed) land(p);
+          if (p.ride) { p.vel.set(0, 0, 0); p.m.rotation.x = 0; p.m.rotation.z = 0; p.rest = 0; continue; }
           p.vel.y = Math.abs(p.vel.y) > 2 ? -p.vel.y * 0.28 : 0; p.vel.x *= 0.35; p.vel.z *= 0.35; p.spin.multiplyScalar(0.3);
           if (p.vel.y === 0) { p.vel.set(0, 0, 0); p.m.rotation.x = 0; p.m.rotation.z = 0; }
         }
@@ -436,16 +525,17 @@ export function initGame(app) {
       if (t.done) {
         t.fade -= dt * 1.8;
         const f = Math.max(0, t.fade);
-        t.g.scale.setScalar(1 + (1 - f) * 1.6); t.bm.uniforms.uK.value = f; t.ring.material.color.copy(CYAN).multiplyScalar(f * 2); t.disc.material.color.setRGB(0.03 * f, 0.22 * f, 0.28 * f); t.icon.visible = false;
+        t.g.scale.setScalar(1 + (1 - f) * 1.6); t.bm.uniforms.uK.value = f; t.ring.material.color.copy(t.col).multiplyScalar(f * 2); t.disc.material.color.copy(t.col).multiplyScalar(0.11 * f); t.icon.visible = false;
         if (f <= 0) t.g.visible = false;
         continue;
       }
       const pulse = 0.75 + 0.25 * Math.sin(app.time * 4 + t.x);
-      t.ring.material.color.copy(CYAN).multiplyScalar(pulse);
+      t.ring.material.color.copy(t.col).multiplyScalar(pulse); t.disc.material.color.copy(t.col).multiplyScalar(0.11);
       t.ring.scale.setScalar(1 + 0.04 * Math.sin(app.time * 4 + t.x));
       t.icon.rotation.y += dt * 1.4; t.icon.rotation.x = 0.5; t.icon.position.y = 3.4 + Math.sin(app.time * 2 + t.z) * 0.25;
     }
     const showRet = playing && aim.target;
+    if (aim.target && aim.target.kind === 'grocery') { /* gentle hand-over: the marker warns when too fast */ }
     reticle.visible = !!showRet;
     if (showRet) {
       reticle.position.set(aim.land.x, aim.land.y + 0.05, aim.land.z);
@@ -460,7 +550,7 @@ export function initGame(app) {
     const live = targets.filter(t => !t.done).sort((a, b) => ((a.x - van.pos.x) ** 2 + (a.z - van.pos.z) ** 2) - ((b.x - van.pos.x) ** 2 + (b.z - van.pos.z) ** 2));
     for (let i = 0; i < 8; i++) {
       const t = live[i];
-      if (t) { gl[i].set(t.x, 0.4, t.z, 6.5); const k = 1.1 + 0.4 * Math.sin(app.time * 4 + t.x); gc[i].setRGB(0.25 * k, 1.5 * k, 1.8 * k); }
+      if (t && t.kind !== 'tram' && t.kind !== 'boat') { gl[i].set(t.x, 0.4, t.z, 6.5); const k = 0.72 * (1.1 + 0.4 * Math.sin(app.time * 4 + t.x)); gc[i].setRGB(t.col.r * k, t.col.g * k, t.col.b * k); }
       else { gl[i].set(0, -100, 0, 1); gc[i].setRGB(0, 0, 0); }
     }
 
@@ -505,20 +595,23 @@ export function initGame(app) {
 
     // HUD
     if (playing) {
-      hud.setClock(S.time, S.delivered, ORDERS);
+      const chips = targets.map(t => ({ css: t.css, state: t.failed ? 'fail' : t.done ? 'done' : 'todo' }));
+      if (!S.rush) chips.push({ css: KINDS.rush.css, state: 'pending' });
+      hud.setClock(S.time, chips);
       hud.setSpeed(van.speed * 2.237, Math.max(0, van.boost) / 3.6);
       if (frameN % 6 === 0) hud.setStreet(streetName());
       if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars);
       const W = innerWidth, H = innerHeight, m = 46;
       const dv = (t) => (t.x - van.pos.x) ** 2 + (t.z - van.pos.z) ** 2;
       hud.setPins(targets.filter(t => !t.done).sort((a, b) => dv(a) - dv(b)).slice(0, 3).map(t => {
-        const p = project(t.x, CURB + 6.5, t.z);
+        const p = project(t.x, t.y + 6.5, t.z);
         let x = p.x, y = p.y;
         if (p.behind) { x = W - x; y = H + 200; }
-        const edge = x < m || x > W - m || y < m + 60 || y > H - m - 50 || p.behind;
-        const cx = Math.max(m, Math.min(W - m, x)), cy = Math.max(m + 60, Math.min(H - m - 50, y));
+        const edge = x < m || x > W - m || y < m + 60 || y > H - m - 110 || p.behind;
+        const cx = Math.max(m, Math.min(W - m, x)), cy = Math.max(m + 60, Math.min(H - m - 110, y));
         const dist = Math.hypot(t.x - van.pos.x, t.z - van.pos.z);
-        return { x: cx, y: cy, edge, near: dist < 22 && !edge, dist, angle: edge ? Math.atan2(y - cy, x - cx) - Math.PI / 2 : 0 };
+        const label = `${t.tag ? t.tag + ' · ' : ''}${t.expire !== undefined ? Math.ceil(t.expire) + ' s · ' : ''}${Math.round(dist)} m`;
+        return { x: cx, y: cy, edge, near: dist < 22 && !edge && !t.tag, dist, css: t.css, label, angle: edge ? Math.atan2(y - cy, x - cx) - Math.PI / 2 : 0 };
       }));
     }
     audio.update({ speed: van.speed, throttle: input.throttle, slip: van.slip, boost: van.boost > 0, active: playing });

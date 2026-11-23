@@ -16,7 +16,9 @@ export function createHud() {
   const speed = el('div', 'hud-speed', '<span class="val">0</span><span class="unit">MPH</span><div class="boost"><i></i></div>');
   const street = el('div', 'hud-street', '<span>Westlake Ave N</span>');
   const hint = el('div', 'hud-hint', '<b>W A S D</b> drive &nbsp;·&nbsp; <b>SPACE</b> throw parcel &nbsp;·&nbsp; <b>SHIFT</b> drift &nbsp;·&nbsp; <b>R</b> reset &nbsp;·&nbsp; <b>M</b> mute');
-  bottom.append(speed, street, hint);
+  const cargo = el('div', 'hud-cargo', '<span>GROCERIES</span><div><i></i></div><b>100%</b>');
+  cargo.style.display = 'none';
+  bottom.append(speed, street, hint, cargo);
 
   const pins = el('div', 'hud-pins');
   const toasts = el('div', 'hud-toasts');
@@ -37,16 +39,21 @@ export function createHud() {
       c.classList.toggle('on', combo > 1);
     },
     bumpScore() { score.classList.remove('bump'); void score.offsetWidth; score.classList.add('bump'); },
-    setClock(t, done, total) {
+    setClock(t, chips) {
       const s = Math.max(0, Math.ceil(t));
       q(clock, '.time').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
       clock.classList.toggle('low', t < 20);
-      q(clock, '.orders').innerHTML = Array.from({ length: total }, (_, i) => `<i class="${i < done ? 'on' : ''}"></i>`).join('');
+      const html = chips.map(c => `<i class="${c.state}" style="--c:${c.css}"></i>`).join('');
+      if (html !== state.chips) { state.chips = html; q(clock, '.orders').innerHTML = html; }
     },
     setSpeed(mph, boost) {
       q(speed, '.val').textContent = Math.round(mph);
       q(speed, '.boost i').style.width = `${Math.round(boost * 100)}%`;
       speed.classList.toggle('boosting', boost > 0);
+    },
+    setCargo(v) {
+      cargo.style.display = v === null ? 'none' : '';
+      if (v !== null) { q(cargo, 'i').style.width = `${Math.round(v)}%`; q(cargo, 'b').textContent = `${Math.round(v)}%`; cargo.classList.toggle('bad', v < 55); }
     },
     setStreet(name) { const s = q(street, 'span'); if (s.textContent !== name) s.textContent = name; },
     toast(title, sub, cls = '') {
@@ -71,7 +78,7 @@ export function createHud() {
         p.style.transform = `translate(${d.x}px, ${d.y}px)`;
         p.classList.toggle('edge', d.edge);
         p.classList.toggle('near', d.near);
-        q(p, 'span').textContent = `${Math.round(d.dist)} m`;
+        q(p, 'span').textContent = d.label; p.style.setProperty('--c', d.css);
         q(p, 'i').style.transform = `rotate(${d.angle}rad)`;
       });
     },
@@ -81,14 +88,16 @@ export function createHud() {
         <div class="panel">
           <div class="kicker">SOUTH LAKE UNION · EVENING SHIFT</div>
           <h1>EMERALD <em>DASH</em></h1>
-          <p class="sub">Ten parcels. One rainy night. Fling them onto doorsteps without lifting off the throttle.</p>
+          <p class="sub">Ten jobs. One rainy night. Fling parcels onto doorsteps without lifting off the throttle.</p>
           <div class="keys">
             <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Drive</span></div>
             <div><kbd class="wide">SPACE</kbd><span>Throw parcel</span></div>
             <div><kbd class="wide">SHIFT</kbd><span>Handbrake drift</span></div>
           </div>
           <button class="go">START SHIFT <small>ENTER</small></button>
-          <p class="tip">Line the landing marker up with the glowing doorstep, then release. Faster throws and unbroken streaks score more. Coffee cups give a turbo.</p>
+          <p class="tip">Line the landing marker up with the glowing doorstep, then release. Faster throws and unbroken streaks score more.
+          <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a grocery pick-up: drive gently and hand over slowly.
+          <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake. Coffee cups give a turbo.</p>
         </div>`;
       overlay.style.pointerEvents = 'auto';
       q(overlay, '.go').onclick = onStart;
@@ -134,8 +143,8 @@ export function createHud() {
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.006);
       for (const t of targets) {
         if (t.done) continue;
-        c.fillStyle = `rgba(70,230,255,${0.25 + 0.2 * pulse})`; c.beginPath(); c.arc(X(t.x), Z(t.z), 11 + pulse * 4, 0, 7); c.fill();
-        c.fillStyle = '#5ff'; c.beginPath(); c.arc(X(t.x), Z(t.z), 5.5, 0, 7); c.fill();
+        c.globalAlpha = 0.25 + 0.2 * pulse; c.fillStyle = t.css; c.beginPath(); c.arc(X(t.x), Z(t.z), 11 + pulse * 4, 0, 7); c.fill();
+        c.globalAlpha = 1; c.beginPath(); c.arc(X(t.x), Z(t.z), 5.5, 0, 7); c.fill();
       }
       c.save(); c.translate(X(van.pos.x), Z(van.pos.z)); c.rotate(van.heading + Math.PI / 2);
       c.fillStyle = '#fff'; c.strokeStyle = '#0a1420'; c.lineWidth = 3;

@@ -24,7 +24,17 @@ html, body { margin: 0; height: 100%; background: #05080d; overflow: hidden; }
 @keyframes pulse { to { opacity: 0.55; } }
 .hud-clock .orders { display: flex; gap: 5px; margin-top: 9px; }
 .hud-clock .orders i { width: 15px; height: 6px; border-radius: 2px; background: rgba(234, 244, 255, 0.22); transition: all 0.3s; }
-.hud-clock .orders i.on { background: var(--cyan); box-shadow: 0 0 10px rgba(85, 240, 255, 0.8); }
+.hud-clock .orders i { border-bottom: 2px solid var(--c, transparent); box-sizing: border-box; }
+.hud-clock .orders i.done { background: var(--c); box-shadow: 0 0 10px var(--c); }
+.hud-clock .orders i.fail { background: rgba(255, 80, 80, 0.25); border-bottom-color: rgba(255, 80, 80, 0.6); }
+.hud-clock .orders i.pending { opacity: 0.45; }
+.hud-cargo { position: absolute; left: 0; bottom: 104px; display: flex; align-items: center; gap: 9px; font: 700 11px var(--font); letter-spacing: 0.2em; color: #c8ffd6; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); }
+.hud-cargo div { width: 120px; height: 7px; border-radius: 4px; background: rgba(234, 244, 255, 0.16); overflow: hidden; }
+.hud-cargo i { display: block; height: 100%; background: #6dff8f; box-shadow: 0 0 10px #6dff8f; transition: width 0.15s; }
+.hud-cargo b { font: 700 15px var(--cond); letter-spacing: 0.04em; }
+.hud-cargo.bad { color: #ffb0a0; } .hud-cargo.bad i { background: #ff7a5c; box-shadow: 0 0 10px #ff7a5c; }
+.toast.rush b { color: #ff8ab8; }
+.panel .tip b { color: rgba(234, 244, 255, 0.85); }
 
 .hud-map { width: 150px; height: 220px; border-radius: 12px; overflow: hidden; background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(234, 244, 255, 0.14); box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45); }
 .hud-map canvas { width: 100%; height: 100%; display: block; }
@@ -44,8 +54,8 @@ html, body { margin: 0; height: 100%; background: #05080d; overflow: hidden; }
 
 .hud-pins .pin { position: absolute; left: 0; top: 0; width: 0; height: 0; }
 .pin i { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; display: block; }
-.pin i::before { content: ""; position: absolute; inset: 0; background: var(--cyan); clip-path: polygon(50% 100%, 0 0, 100% 0); filter: drop-shadow(0 0 6px rgba(85, 240, 255, 0.9)); }
-.pin span { position: absolute; left: 50%; top: -30px; transform: translateX(-50%); font: 700 12px var(--cond); letter-spacing: 0.08em; white-space: nowrap; background: rgba(5, 19, 26, 0.72); border: 1px solid rgba(85, 240, 255, 0.5); color: var(--cyan); padding: 2px 7px; border-radius: 10px; }
+.pin i::before { content: ""; position: absolute; inset: 0; background: var(--c, var(--cyan)); clip-path: polygon(50% 100%, 0 0, 100% 0); filter: drop-shadow(0 0 6px rgba(85, 240, 255, 0.9)); }
+.pin span { position: absolute; left: 50%; top: -30px; transform: translateX(-50%); font: 700 12px var(--cond); letter-spacing: 0.08em; white-space: nowrap; background: rgba(5, 19, 26, 0.72); border: 1px solid var(--c, var(--cyan)); color: var(--c, var(--cyan)); padding: 2px 7px; border-radius: 10px; }
 .pin.edge span { top: 14px; }
 .pin.near span { display: none; }
 
