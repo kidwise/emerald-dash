@@ -10,7 +10,7 @@ Re-download with `node tools/fetch-assets.mjs`. The committed copies are recompr
 
 Original SVG artwork made for this project. Shop names on them are real Pike Place Market businesses, used as
 place labels only; the lettering and layouts are our own and no company logos are reproduced. `signs-standin/` holds the same
-artwork with invented shop names; published builds use that set.
+artwork with invented shop names, used only when the stand-in switch in `src/names.js` is on.
 
 ## Map (`map/`)
 
