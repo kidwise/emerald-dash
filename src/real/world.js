@@ -54,7 +54,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     return u > v ? a + (b - a) * u + (c - b) * v : a + (c - d) * u + (d - a) * v;    // the same two triangles the terrain mesh draws
   };
   const updaters = [], glow = [], obstacles = [], colliders = [];
-  let parkedCount = 0, signCount = 0, iconSpots = null, treeAt = null, railRef = null;
+  let parkedCount = 0, signCount = 0, iconSpots = null, treeAt = null, railRef = null, droppedRoads = 0;
 
   // ---- hand-built landmarks take their real places; the map's own buildings make way for them
   const centreOf = (b) => { let x = 0, z = 0; for (const q of b.p) { x += q[0]; z += q[1]; } return [x / b.p.length, z / b.p.length]; };
@@ -75,6 +75,19 @@ export async function initRealWorld(app, mapName = 'slu') {
   const glassAt = needleAt && [needleAt[0] - 65, needleAt[1] - 4];      // Chihuly Garden and Glass, from the map data
   const fountainAt = needleAt && [needleAt[0] - 203, needleAt[1] - 221];
   const inSet = (x, z, m = 0) => { if (!pikeT) return false; const [lx, lz] = pikeT.toLocal(x, z); return lx > -498 - m && lx < -386 + m && lz > 438 - m && lz < 714 + m; };
+  // The hand-built market blocks (in the market's own coordinates). Mapped lanes that run through them,
+  // such as Post Alley behind the shops, are dropped so that nothing routes or drives into a wall.
+  const SET_BLOCKS = [[-427.4, -388, 627.6, 692.4], [-427.4, -388, 584, 626], [-427.4, -388, 549, 567], [-427.4, -388, 451.6, 535], [-492, -452.6, 626, 694], [-492, -452.6, 538, 606], [-492, -452.6, 450, 518]];
+  if (pikeT) {
+    const inBlock = (x, z) => { const [lx, lz] = pikeT.toLocal(x, z); return SET_BLOCKS.some(b => lx > b[0] + 0.5 && lx < b[1] - 0.5 && lz > b[2] + 0.5 && lz < b[3] - 0.5); };
+    const before = data.roads.length;
+    data.roads = data.roads.filter((rd) => {
+      if (rd.n === 'Pike Place') return true;
+      for (let i = 1; i < rd.p.length; i++) { const a = rd.p[i - 1], b = rd.p[i], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2)); for (let k = 0; k <= n; k++) if (inBlock(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)) return false; }
+      return true;
+    });
+    droppedRoads = before - data.roads.length;
+  }
   const spheresB = data.buildings.find(b => /The Spheres/.test(b.n));
   const pickB = (re) => data.buildings.find(b => re.test(b.n));
   const mopopB = pickB(/MoPOP/), libraryB = pickB(/Central Library/), arenaB = pickB(/Climate Pledge Arena/), scienceB = pickB(/Pacific Science Center/);
@@ -918,8 +931,8 @@ export async function initRealWorld(app, mapName = 'slu') {
     monorail: railRef && { state: railRef.state, total: railRef.total, gates: railRef.ends.map(([x, z]) => { const nr = nearRoad(x, z, 4); return nr ? { x: nr.x, z: nr.z } : { x, z }; }) },
     start, pois, sources, stops: heroStops, coffeeSpots, streetName, nearestRoad, drawMap, credit: data.credit,
     // for tools/audit.mjs
-    debug: { roads, nearRoad, inBuilding, bounds: B },
-    stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length, parked: parkedCount, signs: signCount, iconSpots },
+    debug: { roads, nearRoad, inBuilding, bounds: B, route },
+    stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length, parked: parkedCount, signs: signCount, iconSpots, droppedRoads },
   };
   app.updateWorld = (dt) => { for (const u of updaters) u(dt); };
   app.update = (dt) => app.updateWorld(dt);
