@@ -165,7 +165,7 @@ export function createHud() {
       }
       if (nav && nav.pts.length > 1) { c.strokeStyle = nav.target.css; c.lineWidth = 3.5; c.globalAlpha = 0.85; c.lineJoin = 'round'; c.beginPath(); nav.pts.forEach(([x, z], i) => (i ? c.lineTo(X(x), Z(z)) : c.moveTo(X(x), Z(z)))); c.stroke(); c.globalAlpha = 1; }
       c.fillStyle = 'rgba(255,235,200,0.75)'; for (const q2 of cars) c.fillRect(X(q2.x) - 2, Z(q2.z) - 2, 4, 4);
-      if (tram) { c.fillStyle = '#c77dff'; c.fillRect(X(tram.x) - 3, Z(tram.z) - 9, 6, 18); }
+      if (tram) { c.fillStyle = '#c77dff'; c.beginPath(); c.arc(X(tram.x), Z(tram.z), 5, 0, 7); c.fill(); }
       for (const p of pickups) if (p.active) { c.fillStyle = '#ffb347'; c.beginPath(); c.arc(X(p.x), Z(p.z), 4, 0, 7); c.fill(); }
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.006);
       for (const t of targets) {

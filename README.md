@@ -16,9 +16,8 @@ The map is one continuous world; a shift just picks which district its jobs are 
   and public elevation data, from Lake Union to Pike Place and Seattle Center. Pike Place Market, the Space Needle,
   the glass garden, the monorail, the streetcar and the Westlake Park tree stand at their real positions, with
   traffic, signals and pedestrians.
-- **The hand-built arcade city** (`?map=grid`, linked from the title screen): a compressed, regular street grid.
-  It still has a few things the real map lacks: jobs that land a parcel on the streetcar or a dock, the MOHAI
-  model, and stepped hills tuned for big jumps.
+- **The hand-built arcade city** (`?map=grid`, linked from the title screen): the earlier compressed, regular street
+  grid, kept as an alternative. Its stepped downtown hill is tuned for bigger jumps than the real streets give.
 
 Play is one continuous city in both: jobs are dispatched near wherever you drive, or choose Explore for no clock.
 Stop beside a landmark for a close look; Pike Place Market is walking pace, and its shops hand over cargo with
@@ -56,9 +55,9 @@ so release as the marker crosses the glowing ring. Faster throws, dead-centre dr
 |---|---|
 | Cyan | Parcel to a doorstep |
 | Pink | Rush order: triple pay, but it expires |
-| Amber, then green | Pick-up run (groceries in SLU, fish from Pike Place): drive gently and hand over below 20 mph |
-| Purple | Land a parcel on the moving streetcar's roof (SLU) |
-| Blue | Throw onto a dock at the lake (SLU) |
+| Amber, then green | Pick-up run from Whole Foods or a Pike Place shop, each with its own rule (see the top of this file) |
+| Purple | Land a parcel on the moving streetcar's roof (offered when you are near it) |
+| Blue | Throw onto a dock out on Lake Union (offered when you are near the lake) |
 
 Other scoring: near misses with moving traffic, air time off the downtown hill, discovering landmarks, coffee-cup turbos.
 Bumping things breaks your streak; driving at pedestrians costs 50 points (they always jump clear).

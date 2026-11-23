@@ -10,7 +10,7 @@ const box = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y,
 const merge = (l) => mergeGeometries(l.map(g => { const n = g.index ? g.toNonIndexed() : g; n.deleteAttribute('uv'); return n; }));
 const hdr = (r, g, b) => new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b) });
 
-function textTexture(lines, color, w = 1024, h = 512) {
+export function textTexture(lines, color, w = 1024, h = 512) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const x = c.getContext('2d');
   x.fillStyle = '#07080b'; x.fillRect(0, 0, w, h);
@@ -24,7 +24,7 @@ function textTexture(lines, color, w = 1024, h = 512) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
 }
-function signPlane(tex, w, h, x, y, z, ry, k = 2.3) {
+export function signPlane(tex, w, h, x, y, z, ry, k = 2.3) {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(k, k, k) }));
   m.position.set(x, y, z); m.rotation.y = ry;
   return m;

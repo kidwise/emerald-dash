@@ -5,7 +5,7 @@ import { createAudio } from './audio.js';
 import { PIKE } from '../world/market.js';
 import { AVENUES, STREETS, DENNY, CURB, Z_NORTH, LAKE_Z, heightAt, avenueAt, streetAt, avenueName, CAMPUS, MARKET, routeBetween, district, DISTRICT_LABEL } from '../config.js';
 
-const SHIFT_TIME = 100, MAX_JOBS = 4, THROW_T = 0.8, GRAV = 18, RANGE = 36;
+const SHIFT_TIME = 120, MAX_JOBS = 4, THROW_T = 0.8, GRAV = 18, RANGE = 36;
 // job types: colour, HUD colour and tag
 const KINDS = {
   parcel: { col: [0.25, 2.0, 2.4], css: '#55f0ff', tag: '', base: 100 },
@@ -174,13 +174,19 @@ export function initGame(app) {
   // how far a landing point is from a job's sweet spot (below 1.3 is perfect, below 3.4 counts)
   const missOf = (t, x, z, lead) => {
     const px = t.x + t.vx * lead, pz = t.z + t.vz * lead;
-    if (t.kind === 'tram') return Math.max(Math.abs(x - px) * 2.0, Math.abs(z - pz) * 0.33);
+    if (t.kind === 'tram') { const ax = Math.cos(t.h || Math.PI / 2), az = Math.sin(t.h || Math.PI / 2), dx = x - px, dz = z - pz; return Math.max(Math.abs(-dx * az + dz * ax) * 2.0, Math.abs(dx * ax + dz * az) * 0.33); }
     return Math.hypot(x - px, z - pz);
   };
+  const tramRoof = () => { const tr = world.streetcar.state; return heightAt(tr.x, tr.z) + TRAM_ROOF + (REAL ? 0.12 : 0); };
+  // how far it is to drive from a to b along the streets
+  const routeLen = (ax, az, bx, bz) => { const p = routeBetween(ax, az, bx, bz); let d = 0; for (let i = 1; i < p.length; i++) d += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]); return d; };
   const surfaceY = (x, z) => {
-    if (REAL) return groundHeight(x, z);
-    const tr = world.streetcar.state;
-    if (Math.abs(x - tr.x) < 1.5 && Math.abs(z - tr.z) < 9.9) return TRAM_ROOF;
+    const tr = world.streetcar.state, ax = Math.cos(tr.h ?? Math.PI / 2), az = Math.sin(tr.h ?? Math.PI / 2), dx = x - tr.x, dz = z - tr.z;
+    if (Math.abs(-dx * az + dz * ax) < 1.5 && Math.abs(dx * ax + dz * az) < 9.9) return tramRoof();
+    if (REAL) {
+      if (world.dock && Math.hypot(x - world.dock.x, z - world.dock.z) < 3.7) return world.dock.y;
+      return world.inWater(x, z) ? world.waterLevel(x, z) - 0.1 : groundHeight(x, z);
+    }
     if (z < LAKE_Z - 0.6) return onDock(x, z) ? DOCK_Y : -0.62;
     return groundHeight(x, z);
   };
@@ -300,24 +306,29 @@ export function initGame(app) {
     if (!kind) {
       const r = Math.random();
       const hasPick = !!S.cargo || live.some(t => t.kind === 'pickup' || t.kind === 'grocery');
-      const tramOk = !REAL && vz < 250 && Math.abs(vx) < 120 && !live.some(t => t.kind === 'tram');
-      const lakeOk = !REAL && Math.hypot(vx - 30, vz - LAKE_Z) < 380 && !live.some(t => t.kind === 'boat');
+      const tramOk = Math.hypot(tr.x - vx, tr.z - vz) < 230 && !live.some(t => t.kind === 'tram');
+      const dockAt = REAL ? world.dock && world.dock.stand : { x: 30, z: LAKE_Z };
+      const lakeOk = dockAt && Math.hypot(vx - dockAt.x, vz - dockAt.z) < (REAL ? 480 : 380) && !live.some(t => t.kind === 'boat');
       kind = r < 0.15 && !hasPick && S.delivered >= 1 && SOURCES.length ? 'pickup' : r < 0.30 && !live.some(t => t.kind === 'rush') && S.delivered >= 1 ? 'rush' : r < 0.40 && tramOk ? 'tram' : r < 0.48 && lakeOk ? 'boat' : 'parcel';
     }
     let t;
-    if (kind === 'tram') { t = makeTarget('tram', tr.x, tr.z, TRAM_ROOF, 'Streetcar roof'); t.far = 140; hud.toast('Streetcar drop', 'Land one on the roof as it moves'); }
-    else if (kind === 'boat') { t = makeTarget('boat', 30, LAKE_Z - 9, DOCK_Y, 'Houseboat dock'); t.far = Math.hypot(vx - 30, vz - LAKE_Z); hud.toast('Dock drop', 'Throw from the waterfront, over the railing'); }
+    if (kind === 'tram') { t = makeTarget('tram', tr.x, tr.z, tramRoof(), 'Streetcar roof'); t.far = 60 + routeLen(vx, vz, tr.x, tr.z); hud.toast('Streetcar drop', 'Land one on the roof as it moves'); }
+    else if (kind === 'boat') {
+      if (REAL) { if (!world.dock) return null; t = makeTarget('boat', world.dock.x, world.dock.z, world.dock.y, 'Floating dock'); t.far = routeLen(vx, vz, world.dock.stand.x, world.dock.stand.z); }
+      else { t = makeTarget('boat', 30, LAKE_Z - 9, DOCK_Y, 'Houseboat dock'); t.far = routeLen(vx, vz, 30, LAKE_Z + 6); }
+      hud.toast('Dock drop', 'Throw from the waterfront, out over the water');
+    }
     else if (kind === 'pickup') {
       const src = SOURCES.reduce((b, c) => Math.hypot(c.x - vx, c.z - vz) < Math.hypot(b.x - vx, b.z - vz) ? c : b);
-      const dest = pickLot(src.x, src.z, 200, 640); if (!dest) return null;
+      const dest = pickLot(src.x, src.z, REAL ? 280 : 200, REAL ? 950 : 640); if (!dest) return null;
       t = makeTarget('pickup', src.x, src.z, heightAt(src.x, src.z), src.name); t.dest = dest; t.cargo = src.cargo; t.rule = src.rule || {}; t.from = src.from;
-      t.far = Math.hypot(dest.door.x - src.x, dest.door.z - src.z);
+      t.far = routeLen(src.x, src.z, dest.door.x, dest.door.z);
       hud.toast('Cross-town run', `Collect ${src.cargo.toLowerCase()} at ${src.name}`, 'place');
     } else {
-      const lot = pickLot(vx, vz, kind === 'rush' ? 130 : 70, kind === 'rush' ? 320 : 340); if (!lot) return null;
+      const lot = pickLot(vx, vz, kind === 'rush' ? 140 : 75, kind === 'rush' ? (REAL ? 400 : 320) : (REAL ? 420 : 340)); if (!lot) return null;
       t = makeTarget(kind, lot.door.x, lot.door.z, doorY(lot.door), lot.name);
-      t.far = Math.hypot(lot.door.x - vx, lot.door.z - vz);
-      if (kind === 'rush') { t.expire = Math.round(15 + t.far / 7.5); hud.toast('Rush order!', `${t.name} · ${t.expire} s · triple pay`, 'rush'); audio.play('bell'); }
+      t.far = routeLen(vx, vz, lot.door.x, lot.door.z);
+      if (kind === 'rush') { t.expire = Math.round(12 + t.far / 9); hud.toast('Rush order!', `${t.name} · ${t.expire} s · triple pay`, 'rush'); audio.play('bell'); }
     }
     targets.push(t);
     return t;
@@ -330,6 +341,7 @@ export function initGame(app) {
       camHeading: van.heading, elapsed: 0, cargo: null, airBest: 0, spawnCd: 0, post: null, toss: null, lastStop: null, stillT: 0, slowK: 0, coffeeCd: 0, wasSlow: false, district: district(van.pos.x, van.pos.z), seen: new Set() });
     for (const p of pickups) { p.active = true; p.g.visible = true; }
     for (const p of parcels) { p.active = false; p.m.visible = false; p.ride = false; }
+    van.heavy = false; van.limit = 0;
     hud.hideOverlay(); hud.setPlaying(true); hud.setScore(0, 0); hud.setCargo(null);
     for (let i = 0; i < 3; i++) spawnJob('parcel');
     hud.toast(explore ? 'Explore' : 'Shift started', explore ? 'No clock. Find the landmarks, take jobs if you like.' : 'Every delivery adds time. Jobs keep coming.');
@@ -339,12 +351,12 @@ export function initGame(app) {
   fishMesh.visible = false; scene.add(fishMesh);
   function loadCargo(t, bonus = 0) {
     const rule = t.rule || {};
-    const d = doorOf(t.dest); const far = Math.hypot(d.x - t.x, d.z - t.z);
+    const d = doorOf(t.dest); const far = routeLen(t.x, t.z, d.x, d.z);
     t.x = d.x; t.z = d.z; t.y = doorY(d); t.name = t.dest.name; t.dest = null; t.g.position.set(t.x, t.y, t.z);
     setKind(t, 'grocery'); t.tag = t.cargo;
     S.cargo = { cond: 100, label: t.cargo, rule, bonus }; hud.setCargo(100, t.cargo);
     van.heavy = !!rule.heavy;
-    if (rule.chilled) t.expire = Math.round(26 + far / 8);
+    if (rule.chilled) t.expire = Math.round(20 + far / 9);
     const how = rule.chilled ? `Keep it cold: ${t.expire} s to deliver` : rule.heavy ? 'Heavy load: the van is slower. Hand over below 20 mph' : rule.fragile ? 'Corner gently, hand over below 20 mph' : 'Throw it like any parcel';
     hud.toast(`${t.cargo.charAt(0)}${t.cargo.slice(1).toLowerCase()} on board`, `For ${t.name} · ${how}`, 'place'); audio.play('place');
   }
@@ -423,7 +435,7 @@ export function initGame(app) {
       aim.side = lat >= 0 ? 1 : -1; aim.L = THREE.MathUtils.clamp(Math.abs(lat), 3.2, 17);
     } else { aim.side = 1; aim.L = 7; }
     aim.land.set(van.pos.x + rx * aim.side * aim.L + van.vel.x * THROW_T, 0, van.pos.z + rz * aim.side * aim.L + van.vel.y * THROW_T);
-    aim.land.y = bestT && bestT.kind === 'tram' ? TRAM_ROOF : bestT && bestT.kind === 'boat' ? DOCK_Y : groundHeight(aim.land.x, aim.land.z);
+    aim.land.y = bestT && (bestT.kind === 'tram' || bestT.kind === 'boat') ? bestT.y : groundHeight(aim.land.x, aim.land.z);
     aim.ok = bestT ? missOf(bestT, aim.land.x, aim.land.z, THROW_T) : 99;
   }
 
@@ -445,8 +457,9 @@ export function initGame(app) {
   function land(p) {
     p.landed = true;
     const px = p.m.position.x, pz = p.m.position.z;
-    if (!REAL && pz < LAKE_Z - 0.6 && !onDock(px, pz)) {       // into the lake
-      for (let i = 0; i < 20; i++) { const a = Math.random() * 6.28; emit(px, -0.4, pz, Math.cos(a) * 2.5, 3 + Math.random() * 4, Math.sin(a) * 2.5, 0.6, 0.2, 0.5, 0.7, 0.9, 12, 1); }
+    const wet = REAL ? world.inWater(px, pz) && !(world.dock && Math.hypot(px - world.dock.x, pz - world.dock.z) < 3.7) : pz < LAKE_Z - 0.6 && !onDock(px, pz);
+    if (wet) {       // into the water
+      for (let i = 0; i < 20; i++) { const a = Math.random() * 6.28; emit(px, p.m.position.y + 0.1, pz, Math.cos(a) * 2.5, 3 + Math.random() * 4, Math.sin(a) * 2.5, 0.6, 0.2, 0.5, 0.7, 0.9, 12, 1); }
       p.active = false; p.m.visible = false;
     }
     let hit = null, hd = 1e9;
@@ -458,7 +471,7 @@ export function initGame(app) {
       S.streak = (S.elapsed - S.lastDelivery < 16) ? S.streak + 1 : 1;
       S.lastDelivery = S.elapsed; S.bestCombo = Math.max(S.bestCombo, S.streak);
       const mph = p.speedAtThrow * 2.237;
-      let base = K.base + Math.min(140, mph * 2.2), note = perfect ? 'Perfect drop' : 'Delivered', bonus = 6;
+      let base = K.base + Math.min(140, mph * 2.2) + Math.round((hit.far || 0) * 0.2), note = perfect ? 'Perfect drop' : 'Delivered', bonus = 5;
       if (hit.kind === 'rush') { base *= 3; bonus = 10; note = 'Rush delivered · triple pay'; }
       if (hit.kind === 'tram') { p.ride = true; note = 'Landed on the streetcar'; }
       if (hit.kind === 'boat') note = 'Dock drop';
@@ -471,7 +484,7 @@ export function initGame(app) {
         S.cargo = null; hud.setCargo(null); van.heavy = false;
       }
       const pts = Math.round(base * (perfect ? 2 : 1) * (1 + 0.5 * (S.streak - 1)) / 5) * 5;
-      bonus += Math.round((hit.far || 0) / 22);
+      bonus += Math.round((hit.far || 0) / 13);
       S.score += pts; S.delivered++; S.time = Math.min(240, S.time + bonus); if (perfect) S.perfect++;
       hud.pop(sp.x, sp.y, `${perfect ? 'PERFECT ' : ''}+${pts}`, perfect ? 'perfect' : '');
       hud.setScore(S.score, S.streak); hud.bumpScore();
@@ -702,7 +715,7 @@ export function initGame(app) {
       if (S.spawnCd <= 0 && targets.filter(t => !t.done).length < MAX_JOBS) { spawnJob(); S.spawnCd = 2.5; }
       for (const t of targets) {
         if (t.done) continue;
-        if (t.kind === 'tram') { t.x = tr.x; t.z = tr.z; t.vz = tr.dir * tr.v; t.g.position.set(t.x, TRAM_ROOF, t.z); }
+        if (t.kind === 'tram') { t.x = tr.x; t.z = tr.z; t.y = tramRoof(); t.h = tr.h ?? Math.PI / 2; t.vx = tr.vx ?? 0; t.vz = tr.vz ?? tr.dir * tr.v; t.g.position.set(t.x, t.y, t.z); }
         if (t.kind === 'pickup' && !S.toss && Math.hypot(van.pos.x - t.x, van.pos.z - t.z) < 4.6) {
           if (t.rule.toss) {
             // the fishmonger throws it: stop, then catch
@@ -741,7 +754,7 @@ export function initGame(app) {
     // parcels in flight
     for (const p of parcels) {
       if (!p.active) continue;
-      if (p.ride) { const tr = world.streetcar.state; p.m.position.z += tr.dir * tr.v * dt; p.rest += dt; if (p.rest > 12) { p.active = false; p.m.visible = false; p.ride = false; } continue; }
+      if (p.ride) { const tr = world.streetcar.state; p.m.position.x += (tr.vx ?? 0) * dt; p.m.position.z += (tr.vz ?? tr.dir * tr.v) * dt; p.m.position.y = tramRoof() + 0.24; p.rest += dt; if (p.rest > 12) { p.active = false; p.m.visible = false; p.ride = false; } continue; }
       if (!p.landed || p.vel.lengthSq() > 0.05) {
         p.vel.y -= GRAV * dt;
         p.m.position.addScaledVector(p.vel, dt);
@@ -851,7 +864,7 @@ export function initGame(app) {
       hud.setClock(S.time, chips, S.explore ? `LANDMARKS ${album.size}/${PLACES}` : null, S.delivered);
       hud.setSpeed(van.speed * 2.237, Math.max(0, van.boost) / 3.6);
       if (frameN % 6 === 0) hud.setStreet(streetName());
-      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, REAL ? null : world.streetcar.state, world.traffic.cars, nav, world.drawMap);
+      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars, nav, world.drawMap);
       const W = innerWidth, H = innerHeight, m = 46;
       const dv = (t) => (t.x - van.pos.x) ** 2 + (t.z - van.pos.z) ** 2;
       hud.setPins(targets.filter(t => !t.done).sort((a, b) => dv(a) - dv(b)).slice(0, 3).map(t => {

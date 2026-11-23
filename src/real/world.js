@@ -6,7 +6,7 @@ import { createLake } from '../world/landmarks.js';
 import { rng } from '../world/buildings.js';
 import { setMapOverride } from '../config.js';
 import { createPikePlace, PIKE } from '../world/market.js';
-import { createCenter, createMonorail, createMarket, createRetailCore } from '../world/districts.js';
+import { createCenter, createMonorail, createMarket, createRetailCore, textTexture, signPlane } from '../world/districts.js';
 import { createStreetcar } from '../world/landmarks.js';
 import { darkMetal } from '../world/props.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -86,11 +86,11 @@ export async function initRealWorld(app, mapName = 'slu') {
     const pads = [];
     if (pikeT) {
       const c = pikeT.toWorld(-440, 574); pikeY = H(c[0], c[1]);
-      pads.push({ level: pikeY, w: (x, z) => { const [lx, lz] = pikeT.toLocal(x, z); return 1 - ease(Math.hypot(Math.max(-504 - lx, 0, lx + 380), Math.max(432 - lz, 0, lz - 720)) / 34); } });
+      pads.push({ level: pikeY, w: (x, z) => { const [lx, lz] = pikeT.toLocal(x, z); return 1 - ease(Math.hypot(Math.max(-496 - lx, 0, lx + 384), Math.max(436 - lz, 0, lz - 716)) / 75); } });
     }
     if (needleAt) {
       needleY = H(needleAt[0], needleAt[1]);
-      for (const [q, rad] of [[needleAt, 60], [glassAt, 46], [fountainAt, 40]]) pads.push({ level: needleY, w: (x, z) => 1 - ease((Math.hypot(x - q[0], z - q[1]) - rad) / 30) });
+      for (const [q, rad] of [[needleAt, 60], [glassAt, 46], [fountainAt, 40]]) pads.push({ level: needleY, w: (x, z) => 1 - ease((Math.hypot(x - q[0], z - q[1]) - rad) / 55) });
     }
     const boxes = lakes.map((ring) => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [x, z] of ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); } return [x0, x1, z0, z1]; });
     for (let j = 0; j < HG.nz; j++) for (let i = 0; i < HG.nx; i++) {
@@ -99,6 +99,9 @@ export async function initRealWorld(app, mapName = 'slu') {
       lakes.forEach((ring, n) => { const b = boxes[n]; if (x > b[0] && x < b[1] && z > b[2] && z < b[3] && inPoly(x, z, ring)) hgt[k] = waterY[n] - 1.8; });
     }
   }
+
+  const footprints = data.buildings.map(b => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [x, z] of b.p) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); } return { x0, x1, z0, z1, p: b.p }; });
+  const inBuilding = (x, z) => footprints.some(f => x > f.x0 && x < f.x1 && z > f.z0 && z < f.z1 && inPoly(x, z, f.p));
 
   // ================================================================ roads
   // resample every few metres so paint can fade in and out of junctions smoothly
@@ -187,7 +190,7 @@ export async function initRealWorld(app, mapName = 'slu') {
 
   for (const b of data.buildings) {
     const a = b.a;
-    const Hb = b.h || (a > 2500 ? 26 + r() * 30 : a > 900 ? 13 + r() * 18 : 7 + r() * 8);
+    const Hb = /Naval Reserve Armory/.test(b.n) ? 15.4 : b.h || (a > 2500 ? 26 + r() * 30 : a > 900 ? 13 + r() * 18 : 7 + r() * 8);
     const home = ['apartments', 'residential', 'hotel', 'dormitory'].includes(b.t), work = ['office', 'commercial'].includes(b.t), shop = ['retail', 'warehouse', 'industrial', 'church'].includes(b.t);
     let style;
     if (home) style = Hb > 32 ? STYLE.RESI : STYLE.BRICK;
@@ -195,7 +198,9 @@ export async function initRealWorld(app, mapName = 'slu') {
     else if (shop) style = STYLE.BRICK;
     else style = Hb > 45 ? (r() < 0.6 ? STYLE.CURTAIN : STYLE.RESI) : Hb < 15 ? STYLE.BRICK : (r() < 0.6 ? STYLE.CURTAIN : r() < 0.5 ? STYLE.RIBBON : STYLE.BRICK);
     const gh = Math.min(Hb * 0.6, style === STYLE.RESI ? 4.6 : 5.4);
-    const o = {
+    const mohai = /Naval Reserve Armory/.test(b.n);
+    if (mohai) b.n = 'MOHAI';
+    const o = mohai ? { style: STYLE.BRICK, seed: 3.3, floorH: 12.4, bayW: 5.2, groundH: 2.0, lit: 0.92, a: 0, tint: [0.46, 0.45, 0.42] } : {
       style, seed: r() * 50, groundH: gh, lit: style === STYLE.RESI ? 0.36 : 0.5, a: r() < 0.6 ? 1 : 0, b: r(),
       floorH: style === STYLE.CURTAIN ? 4.1 : style === STYLE.BRICK ? 3.9 : style === STYLE.RIBBON ? 4.6 : 3.05,
       bayW: style === STYLE.CURTAIN ? 1.5 : style === STYLE.BRICK ? 3.3 : style === STYLE.RIBBON ? 1.6 : 3.4,
@@ -226,7 +231,8 @@ export async function initRealWorld(app, mapName = 'slu') {
     } catch { /* a degenerate footprint: walls only */ }
     cx /= ring.length; cz /= ring.length;
     if (Hb > 70) beacons.push([cx, top + 3, cz]);
-    if (b.n && door) lots.push({ name: b.n, door, type: 'office', district: 'slu', x0: cx, x1: cx, z0: cz, z1: cz, h: Hb });
+    if (mohai) for (let i = 0; i < ring.length; i++) { const p = ring[i], q = ring[(i + 1) % ring.length]; g.wall(p[0], p[1], q[0], q[1], top - 0.7, top - 0.5, { style: STYLE.EMISSIVE, lit: 2.6, tint: [1.0, 0.82, 0.6] }); }
+    if (b.n && door) lots.push({ name: b.n, door, base, top, type: 'office', district: 'slu', x0: cx, x1: cx, z0: cz, z1: cz, h: Hb });
   }
   // ================================================================ hero landmarks at their real addresses
   const boxSegs = (b, tf) => { const c = [[b.x0, b.z0], [b.x1, b.z0], [b.x1, b.z1], [b.x0, b.z1]].map(q => (tf ? tf(q[0], q[1]) : q)); for (let i = 0; i < 4; i++) segs.push({ ax: c[i][0], az: c[i][1], bx: c[(i + 1) % 4][0], bz: c[(i + 1) % 4][1] }); };
@@ -257,7 +263,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     const mk = createMarket(to, { core: true });
     inner.add(mk.group); glow.push(...mk.glow); updaters.push(() => mk.update(app.time));
     mk.group.remove(mk.far.points);
-    const bayY = 0.4, wheelAt = [-322, 1352];
+    const bayY = 0.4, wheelAt = [-325, 1370];      // the wheel's position in the map data
     mk.wheel.position.set(wheelAt[0], bayY + 4 + 26, wheelAt[1]); mk.wheel.rotation.y = pikeT.th + 0.2; scene.add(mk.wheel);
     mk.pier.position.set(wheelAt[0] + 700, bayY - MARKET_Y, wheelAt[1] - 772); scene.add(mk.pier);
     for (const b of tc) boxSegs(b, pikeT.toWorld);
@@ -274,6 +280,54 @@ export async function initRealWorld(app, mapName = 'slu') {
     heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], needleY + 84, needleAt[1]], dist: 150, lift: -78 },
       { name: 'Glass Garden', sub: 'Blown glass, lit from within', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], needleY + 3.5, glassAt[1]], dist: 26, lift: 0.5 });
   }
+  // names in lights on the famous fronts, and the holiday star
+  {
+    const wallSign = (lot, text, color, up, w) => {
+      const d = lot.door, wx = d.x - d.nx * 2.4, wz = d.z - d.nz * 2.4, y = H(wx, wz) + up, tex = textTexture([[text, 150, 128]], color, 1024, 256);
+      scene.add(signPlane(tex, w, w / 4, wx + d.nx * 0.35, y, wz + d.nz * 0.35, Math.atan2(d.nx, d.nz)));
+      const back = new THREE.Mesh(new THREE.BoxGeometry(w + 0.3, w / 4 + 0.3, 0.2), darkMetal); back.position.set(wx + d.nx * 0.2, y, wz + d.nz * 0.2); back.rotation.y = Math.atan2(d.nx, d.nz); scene.add(back);
+      return { wx, wz, y };
+    };
+    const find = (re) => lots.find(l => re.test(l.name));
+    const m = find(/^MOHAI$/); if (m) { wallSign(m, 'MOHAI', '#ffd9a0', 9.5, 14); heroStops.push({ name: 'MOHAI', sub: 'Museum of History & Industry, in the old Naval Reserve Armory', x: m.door.x + m.door.nx * 14, z: m.door.z + m.door.nz * 14, look: [m.x0, H(m.x0, m.z0) + 6, m.z0], dist: 46, lift: 1 }); }
+    const wc = find(/^Westlake Center$/); if (wc) wallSign(wc, 'WESTLAKE CENTER', '#7fd4ff', 13, 26);
+    const pp = find(/^Pacific Place$/); if (pp) wallSign(pp, 'PACIFIC PLACE', '#ffd35a', 13, 24);
+    const nd = find(/^Nordstrom$/);
+    if (nd) {
+      const at = wallSign(nd, 'NORDSTROM', '#ffffff', 12, 20), d = nd.door, tx = d.nz, tz = -d.nx;
+      const sp = [], scol = [], ss = [], sph = [], R1 = 6.5, R2 = 2.7, v = [];
+      for (let i = 0; i < 10; i++) { const a = (i / 10) * 6.283 - Math.PI / 2, rr = i % 2 ? R2 : R1; v.push([Math.cos(a) * rr, -Math.sin(a) * rr]); }
+      for (let i = 0; i < 10; i++) { const A = v[i], Bq = v[(i + 1) % 10]; for (let t = 0; t < 1; t += 0.085) { const u = A[0] + (Bq[0] - A[0]) * t, w = A[1] + (Bq[1] - A[1]) * t; sp.push(at.wx + d.nx * 0.5 + tx * u, at.y + 12 + w, at.wz + d.nz * 0.5 + tz * u); scol.push(3.0, 2.3, 1.2); ss.push(0.34); sph.push(r()); } }
+      const star = createGlowPoints(sp, scol, ss, sph, { twinkle: 0.35 }); scene.add(star.points); glow.push(star);
+    }
+  }
+  // a floating dock off the park for the over-the-water throw
+  let dock = null;
+  {
+    const lakeN = lakes.findIndex(ring => ring.length > 100), cwb = data.buildings.find(b => /Center for Wooden Boats|MOHAI|Naval Reserve Armory/.test(b.n));
+    if (lakeN >= 0 && cwb) {
+      const [cx, cz] = centreOf(cwb);
+      search: for (let rad = 20; rad < 260; rad += 12) for (let a = 0; a < 6.28; a += 0.3) {
+        const x = cx + Math.cos(a) * rad, z = cz + Math.sin(a) * rad;
+        if (!inWater(x, z) || inBuilding(x, z)) continue;
+        for (let b = 0; b < 6.28; b += 0.4) {
+          // a spot on dry land 11 m away, beside a street, with open water for the dock itself
+          const sx = x + Math.cos(b) * 11, sz = z + Math.sin(b) * 11, nr = nearRoad(sx, sz, 2);
+          if (inWater(sx, sz) || inBuilding(sx, sz) || !nr || nr.d > 30 || !inWater(x - Math.cos(b) * 4, z - Math.sin(b) * 4)) continue;
+          dock = { x, z, y: waterY[lakeN] + 0.55, stand: { x: sx, z: sz } };
+          break search;
+        }
+      }
+      if (dock) {
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(7, 0.5, 7), new THREE.MeshStandardMaterial({ color: 0x6a5238, roughness: 0.7, emissive: 0x3a2814, emissiveIntensity: 0.7 }));
+        deck.position.set(dock.x, dock.y - 0.27, dock.z); scene.add(deck);
+        const dp = [], dc = [], ds = [], dph = [];
+        for (const [ox, oz] of [[-3.3, -3.3], [3.3, -3.3], [3.3, 3.3], [-3.3, 3.3]]) { dp.push(dock.x + ox, dock.y + 0.9, dock.z + oz); dc.push(1.2, 2.4, 3.2); ds.push(0.5); dph.push(ox + oz); }
+        const dl = createGlowPoints(dp, dc, ds, dph, { twinkle: 0.3 }); scene.add(dl.points); glow.push(dl);
+      }
+    }
+  }
+
   const mono = (data.monorail || []).slice().sort((a, b) => b.length - a.length)[0];
   if (mono) {
     const js = [...junctionR].map(([k, R]) => [...k.split(',').map(Number), R]);
@@ -292,8 +346,6 @@ export async function initRealWorld(app, mapName = 'slu') {
       const k = `${cxk},${czk}`; if (!segHash.has(k)) segHash.set(k, []); segHash.get(k).push(s);
     }
   }
-  const footprints = data.buildings.map(b => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [x, z] of b.p) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); } return { x0, x1, z0, z1, p: b.p }; });
-  const inBuilding = (x, z) => footprints.some(f => x > f.x0 && x < f.x1 && z > f.z0 && z < f.z1 && inPoly(x, z, f.p));
 
   // ================================================================ street lamps and trees along the real kerbs
   const sites = [], treeSpots = [];
@@ -457,7 +509,7 @@ export async function initRealWorld(app, mapName = 'slu') {
       const x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t;
       car.group.position.set(x, H(x, z) + 0.12, z); car.group.rotation.y = -(st.dir > 0 ? h : h + Math.PI);
       bumpers.forEach((o, n) => { const d = (n - 1) * 7; o.x = x + Math.cos(h) * d; o.z = z + Math.sin(h) * d; });
-      tram.x = x; tram.z = z; tram.v = st.v; tram.dir = st.dir;
+      tram.x = x; tram.z = z; tram.v = st.v; tram.dir = st.dir; tram.h = st.dir > 0 ? h : h + Math.PI; tram.vx = Math.cos(tram.h) * st.v; tram.vz = Math.sin(tram.h) * st.v;
     });
   }
 
@@ -619,7 +671,8 @@ export async function initRealWorld(app, mapName = 'slu') {
 
   const far = { x: 1e5, z: 1e5 };
   app.world = {
-    real: true, colliders, obstacles, segHash, segCell: SC, rain, updateLampPool, camClip, heightAt: H,
+    real: true, colliders, obstacles, segHash, segCell: SC, rain, updateLampPool, camClip, heightAt: H, dock, inWater,
+    waterLevel: (x, z) => { const n = lakes.findIndex(ring => inPoly(x, z, ring)); return n >= 0 ? waterY[n] : 0; },
     buildings: { lots }, streetcar: { state: tram },
     traffic: { cars, update: trafficUpdate, bump }, peds,
     pike: { sources: [], stops: [], coffee }, inSlow,

@@ -32,7 +32,7 @@ for (const pick of [1, 4, 5]) {
 // 3. each shop's cargo
 const src = await ev(() => window.__app.world.pike.sources.map(s => [s.name, s.x, s.z, s.cargo]));
 for (const s of src) {
-  await ev((q) => { const g = window.__app.game; g.targets.forEach(t => { t.done = true; t.fade = 0; }); g.state.cargo = null; g.state.lastStop = { x: q[1], z: q[2] }; g.van.reset(q[1], q[2], Math.PI / 2); }, s);
+  await ev((q) => { const g = window.__app.game; g.targets.forEach(t => { t.done = true; t.fade = 0; }); g.state.cargo = null; g.van.heavy = false; g.state.lastStop = { x: q[1], z: q[2] }; g.van.reset(q[1], q[2], Math.PI / 2); }, s);
   await sleep(200);
   await ev(() => window.__app.game.spawnJob('pickup'));
   await ev((q) => window.__app.game.van.reset(q[1], q[2] - 14, Math.PI / 2), s);
