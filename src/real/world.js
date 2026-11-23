@@ -69,7 +69,8 @@ export async function initRealWorld(app, mapName = 'slu') {
   }
   const needleB = data.buildings.find(b => b.n === 'Space Needle');
   const needleAt = needleB ? centreOf(needleB) : null;
-  const glassAt = needleAt && [needleAt[0] - 62, needleAt[1] + 52], fountainAt = needleAt && [needleAt[0] - 203, needleAt[1] - 221];
+  const glassAt = needleAt && [needleAt[0] - 65, needleAt[1] - 4];      // Chihuly Garden and Glass, from the map data
+  const fountainAt = needleAt && [needleAt[0] - 203, needleAt[1] - 221];
   const inSet = (x, z, m = 0) => { if (!pikeT) return false; const [lx, lz] = pikeT.toLocal(x, z); return lx > -498 - m && lx < -386 + m && lz > 438 - m && lz < 714 + m; };
   const spheresB = data.buildings.find(b => /The Spheres/.test(b.n));
   data.buildings = data.buildings.filter((b) => {
@@ -281,7 +282,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     center.group.position.y = needleY; scene.add(center.group); glow.push(...center.glow); updaters.push(() => center.update(app.time, app.camera.position));
     for (const b of tc) boxSegs(b);
     heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], needleY + 84, needleAt[1]], dist: 150, lift: -78 },
-      { name: 'Glass Garden', sub: 'Blown glass, lit from within', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], needleY + 3.5, glassAt[1]], dist: 26, lift: 0.5 });
+      { name: 'Chihuly Garden and Glass', sub: 'Blown glass, lit from within, at the foot of the Needle', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], needleY + 3.5, glassAt[1]], dist: 26, lift: 0.5 });
   }
   // ================================================================ the Amazon Spheres: three glass domes of plants
   if (spheresB) {
@@ -759,7 +760,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   const centre = (b) => { let x = 0, z = 0; for (const p of b.p) { x += p[0]; z += p[1]; } return [x / b.p.length, z / b.p.length]; };
   // places you discover by driving past them
   const pois = [
-    [/Center for Wooden Boats/, 'Center for Wooden Boats', 'Historic boats on Lake Union'], [/Kenmore Air/, 'Kenmore Air', 'Seaplanes off the lake'], [/^REI$/, 'REI', 'The flagship store'],
+    [/Center for Wooden Boats/, 'Center for Wooden Boats', 'Historic boats on Lake Union'], [/Kenmore Air/, 'Kenmore Air', 'Seaplanes off the lake'],
     [/Amazon Day 1/, 'Amazon Day 1', 'The headquarters tower beside the Spheres'], [/Amazon Doppler/, 'Amazon Doppler', 'The first of the downtown Amazon towers'],
     [/^Google$/, 'Google', 'The South Lake Union campus'], [/Allen Institute/, 'Allen Institute', 'Brain science on Mercer St'],
     [/MoPOP/, 'MoPOP', 'Museum of Pop Culture', 75], [/Climate Pledge Arena/, 'Climate Pledge Arena', 'Home of the Kraken and the Storm', 95], [/Pacific Science Center/, 'Pacific Science Center', 'The arches from the 1962 World’s Fair', 75],
@@ -767,7 +768,17 @@ export async function initRealWorld(app, mapName = 'slu') {
     [/Central Library/, 'Seattle Central Library', 'Glass and steel, opened in 2004', 65], [/^Rainier Tower$/, 'Rainier Tower', 'The tower on a pedestal'],
     [/^Westlake Center$/, 'Westlake Center', 'Heart of the retail core'], [/^Pacific Place$/, 'Pacific Place', 'Downtown shopping'], [/^Nordstrom$/, 'Nordstrom', 'The flagship store'],
   ].map(([re, name, sub, rad]) => { const b = named(re); if (!b) return null; const [x, z] = centre(b); return { name, sub, x, z, r: rad || 55 }; }).filter(Boolean);
+  // places the baked map has no named building for; positions looked up in OpenStreetMap
+  for (const [name, sub, x, z, rad] of [
+    ['Seattle Art Museum', 'Modern and Native American art on 1st Ave', -23, 1197, 60], ['Gum Wall', 'Post Alley, under the market', -160, 1122, 40],
+    ['Olympic Sculpture Park', 'Sculpture above the bay in Belltown', -1312, 251, 90], ['Seattle Aquarium', 'Pier 59 on the waterfront', -359, 1179, 80],
+    ['Great Wheel', 'The ferris wheel on Pier 57', -325, 1370, 95], ['International Fountain', 'The dome and its jets at Seattle Center', -1034, -439, 60],
+    ['REI', 'The flagship store', 635, -193, 70],
+  ]) if (x > B.x0 - 60 && x < B.x1 + 60 && z > B.z0 - 60 && z < B.z1 + 60) pois.push({ name, sub, x, z, r: rad });
+  if (mono) { const q = mono[Math.floor(mono.length / 2)]; pois.push({ name: 'Seattle Center Monorail', sub: 'Built for the 1962 World’s Fair', x: q[0], z: q[1], r: 45 }); }
   for (const [re, sub] of [[/^Denny Park$/, 'Seattle’s oldest park'], [/Victor Steinbrueck Park/, 'Overlooking Elliott Bay, beside the market']]) { const pk = data.parks.find(q => re.test(q.n)); if (pk) { const [x, z] = centre(pk); pois.push({ name: pk.n, sub, x, z, r: 60 }); } }
+  // every landmark must be discoverable from the nearest street
+  for (const q of pois) { const nr = nearRoad(q.x, q.z, 4); if (nr) q.r = Math.max(q.r, Math.hypot(nr.x - q.x, nr.z - q.z) + 25); }
   const wf = nearRoad(-25, 45, 3);
   const sources = [...(wf ? [{ name: 'Whole Foods Market', x: wf.x, z: wf.z, cargo: 'GROCERIES', rule: { fragile: 8.5, gentle: true } }] : []), ...heroSources];
   const coffeeSpots = []; for (let n = 0; n < 60 && coffeeSpots.length < 26; n++) { const rd = roads[Math.floor(r() * roads.length)]; if (rd.len < 60 || rd.kind.endsWith('_link')) continue; const p = rd.pts[Math.floor(rd.pts.length * (0.3 + r() * 0.4))]; if (p[0] > B.x0 + 30 && p[0] < B.x1 - 30 && p[1] > B.z0 + 30 && p[1] < B.z1 - 30) coffeeSpots.push(p); }

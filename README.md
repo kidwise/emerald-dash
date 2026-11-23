@@ -9,8 +9,9 @@ without stopping.
 Streets, building footprints, hills and shorelines are baked from OpenStreetMap and public elevation data, covering
 South Lake Union, Belltown, the downtown retail core, Pike Place and Seattle Center (about 2 km by 2.6 km).
 Hand-built landmarks stand at their real positions: Pike Place Market (arcade, stalls and shopfronts), the Public
-Market sign, the Space Needle and glass garden, the monorail, the streetcar, the Westlake Park holiday tree, MOHAI
-and the Great Wheel. Traffic obeys the signals, pedestrians walk the kerbs, cars are parked along the wider
+Market sign, the Space Needle and Chihuly Garden and Glass, the Amazon Spheres, the monorail, the streetcar, the
+Westlake Park holiday tree, MOHAI and the Great Wheel. Another two dozen places (museums, theatres, stores, parks)
+are marked on the map to discover by driving past. Traffic obeys the signals, pedestrians walk the kerbs, cars are parked along the wider
 streets and neon signs hang from the shopfronts.
 
 Jobs are dispatched near wherever you drive; choose Explore for no clock. Stop beside a landmark for a close look.
