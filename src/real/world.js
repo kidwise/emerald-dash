@@ -3,8 +3,8 @@ import { FacadeGeo, STYLE, createFacadeMaterial } from '../world/facade.js';
 import { buildLamps, buildTrees, createGlowPoints, chunks } from '../world/props.js';
 import { createRain } from '../world/rain.js';
 import { createLake } from '../world/landmarks.js';
-import { rng } from '../world/buildings.js';
-import { setMapOverride } from '../config.js';
+import { rng } from '../world/rng.js';
+import { setMap } from '../config.js';
 import { createPikePlace, PIKE } from '../world/market.js';
 import { createCenter, createMonorail, createMarket, createRetailCore, textTexture, signPlane } from '../world/districts.js';
 import { createStreetcar } from '../world/landmarks.js';
@@ -386,7 +386,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   ground.uniforms.tLight.value = lightTex; ground.uniforms.uLightRect.value.set(B.x0, B.z0, B.x1 - B.x0, B.z1 - B.z0);
 
   if (beacons.length) { const bp = createGlowPoints(beacons.flat(), beacons.flatMap(() => [8, 0.4, 0.25]), beacons.map(() => 1.4), beacons.map((_, i) => i * 0.21), { blink: 1, fogK: 0.4 }); scene.add(bp.points); glow.push(bp); }
-  const rain = createRain(); rain.uniforms.uLattice.value = 0; scene.add(rain.lines);
+  const rain = createRain(); scene.add(rain.lines);
 
   // ================================================================ routing over the real street graph
   const nodes = new Map();
@@ -432,7 +432,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   const nearestRoad = (x, z) => { const a = nearRoad(x, z, 4); if (!a) return { x: 0, z: 0, h: -Math.PI / 2 }; const h = Math.atan2(a.s.bz - a.s.az, a.s.bx - a.s.ax); return { x: a.x - Math.sin(h) * 1.8, z: a.z + Math.cos(h) * 1.8, h }; };
   const inBounds = (x, z) => x > B.x0 + 4 && x < B.x1 - 4 && z > B.z0 + 4 && z < B.z1 - 4 && !inWater(x, z);
   const districtOf = (x, z) => (pikeT && inSet(x, z, 40) ? 'pike' : needleAt && Math.hypot(x - needleAt[0], z - needleAt[1]) < 420 ? 'center' : z > 330 ? 'downtown' : z > 60 && x < -260 ? 'belltown' : 'slu');
-  setMapOverride({ inBounds, route, district: districtOf, heightAt: H });
+  setMap({ inBounds, route, district: districtOf, heightAt: H });
   // keep the chase camera on the street side of walls: pull it in to the first wall between it and the van
   const camClip = (from, to) => {
     let best = 1; const dx = to.x - from.x, dz = to.z - from.z;

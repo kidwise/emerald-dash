@@ -1,27 +1,20 @@
 # Emerald Dash
 
-A browser driving game set in a rainy blue-hour Seattle. You drive a delivery van, flinging parcels onto
-doorsteps without stopping, across three connected districts:
+A browser driving game set in a rainy blue-hour Seattle. You drive a delivery van through a true-scale city built
+from real map data, from Lake Union to Pike Place Market and the Space Needle, flinging parcels onto doorsteps
+without stopping.
 
-- **South Lake Union** — Westlake Ave from Whole Foods at Denny Way to Lake Union Park, MOHAI and the lake, with the streetcar.
-- **Downtown & Pike Place** — the retail core (Westlake Center, Westlake Park, Pacific Place), the monorail over 5th Ave,
-  and four stepped blocks downhill to Pike Place Market and the bay.
-- **Seattle Center** — west along Denny Way under the monorail to the Space Needle, the glass garden and the International Fountain.
+## The city
 
-The map is one continuous world; a shift just picks which district its jobs are in.
+Streets, building footprints, hills and shorelines are baked from OpenStreetMap and public elevation data, covering
+South Lake Union, Belltown, the downtown retail core, Pike Place and Seattle Center (about 2 km by 2.6 km).
+Hand-built landmarks stand at their real positions: Pike Place Market (arcade, stalls and shopfronts), the Public
+Market sign, the Space Needle and glass garden, the monorail, the streetcar, the Westlake Park holiday tree, MOHAI
+and the Great Wheel. Traffic obeys the signals and pedestrians walk the kerbs.
 
-## Two maps
-
-- **The real map** (default): true-scale streets, building footprints, hills and shoreline baked from OpenStreetMap
-  and public elevation data, from Lake Union to Pike Place and Seattle Center. Pike Place Market, the Space Needle,
-  the glass garden, the monorail, the streetcar and the Westlake Park tree stand at their real positions, with
-  traffic, signals and pedestrians.
-- **The hand-built arcade city** (`?map=grid`, linked from the title screen): the earlier compressed, regular street
-  grid, kept as an alternative. Its stepped downtown hill is tuned for bigger jumps than the real streets give.
-
-Play is one continuous city in both: jobs are dispatched near wherever you drive, or choose Explore for no clock.
-Stop beside a landmark for a close look; Pike Place Market is walking pace, and its shops hand over cargo with
-their own rules (catch the thrown fish, flowers that must not tip, heavy cheese, yogurt on a clock).
+Jobs are dispatched near wherever you drive; choose Explore for no clock. Stop beside a landmark for a close look.
+Pike Place Market is walking pace, and its shops hand over cargo with their own rules: catch the thrown fish,
+flowers that must not tip, heavy cheese, yogurt on a clock.
 
 ## Run
 
@@ -38,12 +31,13 @@ Needs a WebGL2 browser with a real GPU. Resolution drops automatically if the fr
 | Key | Gamepad | Action |
 |---|---|---|
 | W A S D / arrows | left stick, triggers | Drive |
-| Space | A | Throw (to whichever side the nearest job is on) |
+| Space | A | Throw (to whichever side the nearest job is on), or catch |
 | Shift | B / RB | Handbrake drift |
-| 1 2 3 | | Pick a district on the title screen |
-| Enter | Start | Start / restart a shift |
+| Tab | | Route to the next job |
+| Enter / E | Start | Start a shift / explore |
 | R | | Reset onto the nearest road |
 | T | | Toggle rain / clear evening |
+| Esc | | End the session |
 | M | | Mute |
 
 The white marker on the ground shows where a parcel thrown *now* would land; it carries the van's speed,
@@ -55,60 +49,53 @@ so release as the marker crosses the glowing ring. Faster throws, dead-centre dr
 |---|---|
 | Cyan | Parcel to a doorstep |
 | Pink | Rush order: triple pay, but it expires |
-| Amber, then green | Pick-up run from Whole Foods or a Pike Place shop, each with its own rule (see the top of this file) |
+| Amber, then green | Pick-up run from Whole Foods or a Pike Place shop, each with its own rule |
 | Purple | Land a parcel on the moving streetcar's roof (offered when you are near it) |
-| Blue | Throw onto a dock out on Lake Union (offered when you are near the lake) |
+| Blue | Throw onto a floating dock on Lake Union (offered when you are near the lake) |
 
-Other scoring: near misses with moving traffic, air time off the downtown hill, discovering landmarks, coffee-cup turbos.
-Bumping things breaks your streak; driving at pedestrians costs 50 points (they always jump clear).
+The clock runs down and every delivery adds time, more for longer drives. Other scoring: near misses with moving
+traffic, air time over hill crests, landmarks found, coffee-cup turbos. Bumping things breaks your streak; driving
+at pedestrians costs 50 points (they always jump clear).
 
 ## How it is built
 
-City blocks are generated in code. Hero landmarks also use asset files in `public/assets/`: CC0 photographic
-textures, hand-designed SVG signage and the baked real map (credits in `public/assets/CREDITS.md`).
+City blocks are generated in code from the map data. Landmarks also use asset files in `public/assets/`: CC0
+photographic textures, hand-designed SVG signage, and the baked map and height grid (credits in
+`public/assets/CREDITS.md`).
 
-- `src/config.js` — the whole map: avenues and streets with their extents, the hill profile, drivable areas and the
-  block generator. The same data is exported to the shaders. Extending or replacing the map starts here.
-- `src/world/ground.js` — wet asphalt, lane paint, rails, brick paving, puddles with rain ripples, analytic street-lamp light.
-- `src/gfx/planar.js` — mirror pass that gives the wet streets true reflections (it follows the level the van is on).
+- `src/config.js` — shared constants, and the questions every system asks the map (height, bounds, routes).
+- `src/real/world.js` — builds the city from the baked map: road ribbons at any angle, terrain, footprints,
+  shorelines, lamps and trees, signals, traffic, routing, and the placement of every landmark.
+- `src/world/ground.js` — the wet ground shader: asphalt, lane paint, paving, puddles with rain ripples.
+- `src/gfx/planar.js` — mirror pass for the wet streets; the mirror tilts to lie along the street the van is on.
 - `src/world/facade.js` — building surfaces; windows use interior mapping so lit rooms have real parallax depth.
-- `src/world/buildings.js` — fills every block: hand-authored SLU, generated downtown (stepped on the hill) and backdrop.
-- `src/world/props.js` — lamps, light-wrapped trees, signals, parked cars, neon signs, barriers; split into map tiles that are skipped when far away.
-- `src/world/cars.js` — car models shared by parked cars and traffic.
-- `src/world/landmarks.js` — Lake Union, the park, MOHAI, boats and the streetcar.
 - `src/world/market.js` — Pike Place Market, modelled by hand: arcade, stalls, shopfronts, people.
-- `src/real/world.js` — builds a district from real map data: roads at any angle, footprints, shoreline, routing.
-- `src/world/districts.js` — monorail, Pike Place sign and bay with the Great Wheel, Westlake Park tree, Space Needle, glass garden, fountain.
-- `src/world/traffic.js`, `pedestrians.js` — street life.
-- `src/world/rain.js` — rain streaks and steam.
+- `src/world/districts.js` — monorail, market sign and Great Wheel, holiday tree, Space Needle, glass garden, fountain.
+- `src/world/props.js`, `cars.js`, `pedestrians.js`, `landmarks.js`, `rain.js`, `sky.js` — lamps and trees, car
+  models, pedestrians, water and the streetcar model, rain, sky.
 - `src/game/van.js` — the van model and arcade driving physics, including hills and air time.
-- `src/game/game.js` — jobs, scoring, districts, camera, particles; `hud.js` and `audio.js` alongside.
+- `src/game/game.js` — jobs, scoring, camera, particles; `hud.js` and `audio.js` alongside.
 - `src/gfx/post.js` — ambient occlusion, bloom, filmic tone mapping, grain, anti-aliasing.
 
-## Checking it
+## Tools
 
-All tools drive headless Chrome against the dev server:
+All test tools drive headless Chrome against the dev server:
 
 ```
 node tools/shot.mjs name "cam=x,y,z,tx,ty,tz"     # fixed debug camera screenshot
-node tools/play.mjs                                # drives with real key presses and makes a delivery
-node tools/missions.mjs                            # every special job type
-node tools/hill.mjs                                # district starts and a fast run down Pike St
-node tools/life.mjs                                # pedestrian and traffic close-ups, traffic-flow statistics
-node tools/scare.mjs                               # charges a pedestrian to check they dodge
-node tools/weather.mjs                             # the clear-evening toggle
-node tools/soak.mjs "" 60                          # 60 s of random driving and crashes (add map=grid for the arcade city)
+node tools/realmap.mjs                             # drive, walls, traffic, a delivery, streetcar and dock jobs
+node tools/realheroes.mjs                          # photograph each landmark in place
+node tools/realhill.mjs                            # drive down the steepest street
 node tools/market.mjs                              # Pike Place: slow zone, postcards, shop cargo
-node tools/realmap.mjs                             # real map: drive, walls, traffic, a delivery
-node tools/realheroes.mjs                          # real map: photograph each landmark in place
+node tools/weather.mjs                             # the clear-evening toggle
+node tools/soak.mjs "" 60                          # 60 s of random driving and crashes
 node tools/fetch-assets.mjs                        # re-download the CC0 textures
-node tools/bake-map.mjs city                       # rebuild the real map from raw OpenStreetMap data
+node tools/bake-map.mjs city                       # rebuild the map from raw OpenStreetMap data
 node tools/bake-dem.mjs city                       # rebuild its ground heights from public elevation tiles
-node tools/realhill.mjs                            # real map: drive down the steepest street
 ```
 
-## Not a survey map
+## Names
 
-Street and place names are real, but the layout is a regular grid for play: real downtown streets are rotated against
-South Lake Union's, Westlake Ave runs diagonally, and distances here are compressed. Building signage, the van livery and
-the courier brand are invented. Swap any real business names for stand-ins before publishing this anywhere public.
+Street, place and building names come from the map data. Shop signage is our own artwork using real shop names as
+place labels, with no company logos; the van livery and courier brand are invented. Replace real business names
+with stand-ins before publishing the game publicly, and keep the OpenStreetMap credit visible.

@@ -1,7 +1,12 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLSL_NOISE, GLSL_LAMPS, GLSL_SKY } from '../gfx/glsl.js';
-import { cityCells, CURB, FOG_COLOR, FOG_DENSITY, Z_NORTH, LAKE_Z, HILL_Z, hillF, heightAt, WESTLAKE_INDEX, BRICK_INDEX } from '../config.js';
+import { FOG_COLOR, FOG_DENSITY } from '../config.js';
+
+// The wet ground material. One shader, three surfaces (chosen with the MODE define):
+//   3 = road ribbon   uv.x = metres across, uv.y = metres along, aInfo = (half width, kind, distance to junction)
+//   4 = open paving   (parks are painted in from the green channel of the top-down texture)
+//   5 = grass
+// Street-lamp light comes from a top-down texture baked by the map (red channel).
 
 const VERT = /* glsl */`
 attribute vec4 aInfo;
@@ -19,31 +24,27 @@ void main(){
 
 const FRAG = /* glsl */`
 uniform sampler2D tReflect;
-uniform sampler2D tBrick;
-uniform sampler2D tBrickN;
 uniform sampler2D tLight;
 uniform vec4 uLightRect;
-varying vec4 vInfo;
-varying vec2 vUv;
 uniform mat4 uReflectMatrix;
 uniform float uTime;
-uniform float uPlaneY;
-uniform vec4 uPlane;
+uniform vec4 uPlane;        // the mirror plane: normal.xyz, d
 uniform float uRain;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
 uniform vec3 uAmbient;
 uniform vec4 uHeadPos[12];   // xyz = position, w = intensity
 uniform vec4 uHeadDir[12];   // xyz = direction, w = warm(0)/red(1) tint
-uniform vec4 uGlow[8];      // xyz = position, w = radius   (coloured local glows: targets, signs)
+uniform vec4 uGlow[8];       // xyz = position, w = radius   (coloured local glows: job markers)
 uniform vec3 uGlowCol[8];
+varying vec4 vInfo;
+varying vec2 vUv;
 varying vec3 vWPos;
 varying vec3 vN;
 ${GLSL_NOISE}
 ${GLSL_LAMPS}
 ${GLSL_SKY}
 
-const float PARK_WATER_Z = ${(LAKE_Z + 2.6).toFixed(1)};
 float band(float x, float c, float hw){ float w = fwidth(x) * 0.75; return 1.0 - smoothstep(hw - w, hw + w, abs(x - c)); }
 float dashes(float a, float period, float len){
   float f = mod(a, period); float w = fwidth(a);
@@ -70,7 +71,7 @@ vec2 ripple(vec2 p, float t){
   return acc;
 }
 
-// Paint for one road. c = across, a = along, hw = half width, dInt = distance to the crossing road's kerb line.
+// Paint for one road. c = across, a = along, hw = half width, dInt = distance to the junction's kerb line.
 vec4 roadPaint(float c, float a, float hw, float dInt, float kind){
   float m = 0.0; vec3 col = vec3(0.62, 0.62, 0.60);
   float inside = step(abs(c), hw - 0.35);
@@ -99,154 +100,48 @@ void main(){
   float dist = length(toCam);
   vec3 V = toCam / dist;
 
-  float avD = 1e4, avC = 0.0, avHW = 0.0; int avI = 0;
-  float stD = 1e4, stC = 0.0, stHW = 0.0; int stI = 0;
-  for (int i = 0; i < N_AV; i++) { if (p.y < AVZ0[i] || p.y > AVZ1[i]) continue; float c = p.x - AVX[i]; float d = abs(c) - AVHW[i]; if (d < avD) { avD = d; avC = c; avHW = AVHW[i]; avI = i; } }
-  for (int j = 0; j < N_ST; j++) { if (p.x < STX0[j] || p.x > STX1[j]) continue; float c = p.y - STZ[j]; float d = abs(c) - STHW[j]; if (d < stD) { stD = d; stC = c; stHW = STHW[j]; stI = j; } }
   // water runs off the hills: standing puddles only on level ground
-#ifdef REALMAP
   float level = smoothstep(0.9900, 0.9985, vN.y);
-#else
-  float level = 1.0 - smoothstep(0.02, 0.07, abs(terrainH(p + vec2(1.0, 0.0)) - terrainH(p - vec2(1.0, 0.0))) * 0.5);
-#endif
-
   float detail = 1.0 / (1.0 + dist * 0.02);
   float nLow = fbm(p * 0.085 + 3.1);
   float nMid = vnoise(p * 1.7);
   float nHi = vnoise(p * 23.0);
 
   vec3 albedo; float rough; float puddle; float reflK; float bump;
-  vec2 extraTilt = vec2(0.0);
   vec3 N = vec3(0.0, 1.0, 0.0);
 
-#if MODE == 0
-  // ---------------- asphalt road ----------------
+#if MODE == 3
+  // ---------------- road ribbon
+  float hw3 = vInfo.x, c3 = vUv.x, dJ = vInfo.z;
   albedo = vec3(0.034, 0.036, 0.040) * (0.75 + 0.6 * nLow) + (nHi - 0.5) * 0.018 * detail;
-  // old repair patches and sealant lines
-  float patchK = smoothstep(0.60, 0.62, vnoise(floor(p / vec2(3.1, 5.3)) * 1.7));
-  albedo *= 1.0 - 0.22 * patchK * step(0.7, vnoise(p * 0.21));
-  float crack = smoothstep(0.012, 0.0, abs(vnoise(p * 0.55) - 0.5)) * smoothstep(0.45, 0.6, vnoise(p * 0.13 + 9.0));
-  albedo *= 1.0 - 0.6 * crack * detail;
-
-  float kerb = 1e4;
-  bool inAv = avD < 0.0, inSt = stD < 0.0;
-  if (inAv && !inSt) kerb = -avD; else if (inSt && !inAv) kerb = -stD;
-  float gutter = smoothstep(1.9, 0.15, kerb);
-  puddle = smoothstep(0.50, 0.60, nLow + gutter * 0.16 * (0.5 + nMid)) * level;
-  rough = mix(0.34, 0.02, puddle);
-  bump = mix(0.55, 0.0, puddle);
-  reflK = mix(0.55, 1.0, puddle);
-
-  vec4 paint = vec4(0.0);
-  if (inAv && !inSt) paint = roadPaint(avC, p.y, avHW, stD, avI == ${WESTLAKE_INDEX} ? 1.0 : 0.0);
-  else if (inSt && !inAv) paint = roadPaint(stC, p.x, stHW, avD, 1.0 - step(9.0, stHW) * 1.0);
-  float wear = smoothstep(0.18, 0.5, nMid * 0.6 + nHi * 0.4 + 0.12);
-  paint.a *= wear;
-  albedo = mix(albedo, paint.rgb * (0.8 + 0.3 * nMid), paint.a);
-  rough = mix(rough, max(rough, 0.2), paint.a);
-
-  // streetcar track slab + rails on Westlake
-  if (avI == ${BRICK_INDEX} && avD < 0.0) {
-    // Pike Place: worn red brick paving
-    vec2 buv = p.yx / 2.6;
-    vec3 brick = texture2D(tBrick, buv).rgb * 0.46 * (0.8 + 0.4 * nLow);
-    albedo = mix(albedo, brick, 1.0 - paint.a * 0.85);
-    extraTilt = (texture2D(tBrickN, buv).xy * 2.0 - 1.0) * 0.30 * (1.0 - puddle) * detail;
-    rough = mix(0.26, 0.03, puddle); bump = 0.2 * (1.0 - puddle);
-  }
-  if (avI == ${WESTLAKE_INDEX} && avD < 0.0 && p.y < 252.0) {
-    float tc = abs(abs(avC) - 5.2);
-    float slab = 1.0 - smoothstep(1.48, 1.52, tc);
-    vec2 sj = fract(vec2(avC, p.y) / vec2(1.5, 3.0));
-    float joint = max(band(sj.y, 0.0, 0.012), band(sj.y, 1.0, 0.012));
-    albedo = mix(albedo, vec3(0.085, 0.085, 0.082) * (0.85 + 0.3 * nMid) * (1.0 - 0.5 * joint), slab * (1.0 - paint.a));
-    float rail = band(tc, 0.72, 0.045);
-    albedo = mix(albedo, vec3(0.30, 0.31, 0.33), rail);
-    rough = mix(rough, 0.12, rail); reflK = mix(reflK, 1.3, rail); bump *= 1.0 - rail;
-    float groove = band(tc, 0.80, 0.02);
-    albedo *= 1.0 - 0.7 * groove;
-  }
-  // manhole covers
-  vec2 mc = floor(p / 29.0); vec2 mo = (hash22(mc) - 0.5) * 16.0;
-  float md = length(p - (mc + 0.5) * 29.0 - mo);
-  float mh = 1.0 - smoothstep(0.42, 0.44, md);
-  albedo = mix(albedo, vec3(0.05, 0.045, 0.04) * (0.7 + 0.6 * step(0.5, fract(md * 9.0))), mh);
-  rough = mix(rough, 0.22, mh);
-#elif MODE == 3
-  // ---------------- road ribbon: u = metres across, v = metres along, vInfo = (half width, kind, distance to junction)
-  {
-    float hw3 = vInfo.x, c3 = vUv.x, dJ = vInfo.z;
-    albedo = vec3(0.034, 0.036, 0.040) * (0.75 + 0.6 * nLow) + (nHi - 0.5) * 0.018 * detail;
-    float crack3 = smoothstep(0.012, 0.0, abs(vnoise(p * 0.55) - 0.5)) * smoothstep(0.45, 0.6, vnoise(p * 0.13 + 9.0));
-    albedo *= 1.0 - 0.6 * crack3 * detail;
-    float kerb3 = hw3 - abs(c3);
-    float gutter3 = smoothstep(1.9, 0.15, kerb3) * step(1.0, dJ);
-    puddle = smoothstep(0.50, 0.60, nLow + gutter3 * 0.16 * (0.5 + nMid));
-    rough = mix(0.34, 0.02, puddle); bump = mix(0.55, 0.0, puddle); reflK = mix(0.55, 1.0, puddle);
-    vec4 paint3 = roadPaint(c3, vUv.y, hw3, dJ, vInfo.y);
-    paint3.a *= smoothstep(0.18, 0.5, nMid * 0.6 + nHi * 0.4 + 0.12) * step(0.9, dJ);
-    albedo = mix(albedo, paint3.rgb * (0.8 + 0.3 * nMid), paint3.a);
-    rough = mix(rough, max(rough, 0.2), paint3.a);
-    if (kerb3 < 0.0 && dJ > 0.6) { albedo = vec3(0.17, 0.17, 0.168) * (0.9 + 0.2 * nMid); puddle = 0.0; rough = 0.3; reflK = 0.35; bump = 0.3; }
-  }
+  float crack3 = smoothstep(0.012, 0.0, abs(vnoise(p * 0.55) - 0.5)) * smoothstep(0.45, 0.6, vnoise(p * 0.13 + 9.0));
+  albedo *= 1.0 - 0.6 * crack3 * detail;
+  float kerb3 = hw3 - abs(c3);
+  float gutter3 = smoothstep(1.9, 0.15, kerb3) * step(1.0, dJ);
+  puddle = smoothstep(0.50, 0.60, nLow + gutter3 * 0.16 * (0.5 + nMid)) * level;
+  rough = mix(0.34, 0.02, puddle); bump = mix(0.55, 0.0, puddle); reflK = mix(0.55, 1.0, puddle);
+  vec4 paint3 = roadPaint(c3, vUv.y, hw3, dJ, vInfo.y);
+  paint3.a *= smoothstep(0.18, 0.5, nMid * 0.6 + nHi * 0.4 + 0.12) * step(0.9, dJ);
+  albedo = mix(albedo, paint3.rgb * (0.8 + 0.3 * nMid), paint3.a);
+  rough = mix(rough, max(rough, 0.2), paint3.a);
+  // the outer strip of the ribbon is the kerb stone
+  if (kerb3 < 0.0 && dJ > 0.6) { albedo = vec3(0.17, 0.17, 0.168) * (0.9 + 0.2 * nMid); puddle = 0.0; rough = 0.3; reflK = 0.35; bump = 0.3; }
 #elif MODE == 4
-  // ---------------- open paving between buildings
-  {
-    vec2 sc4 = p / 0.61; vec2 cell4 = floor(sc4); vec2 sf4 = fract(sc4);
-    float fw4 = fwidth(sc4.x) + fwidth(sc4.y);
-    float joint4 = (1.0 - smoothstep(0.02 + fw4, 0.035 + fw4, min(min(sf4.x, 1.0 - sf4.x), min(sf4.y, 1.0 - sf4.y)))) / (1.0 + fw4 * 6.0);
-    albedo = vec3(0.145, 0.142, 0.136) * (0.86 + 0.24 * hash12(cell4) * detail) * (0.8 + 0.4 * nLow) + (nHi - 0.5) * 0.02 * detail;
-    albedo *= (1.0 - 0.45 * joint4) * (1.0 - 0.25 * smoothstep(0.75, 0.9, vnoise(p * 2.3)));
-    puddle = smoothstep(0.60, 0.68, nLow + 0.05 * nMid);
-    rough = mix(0.30, 0.03, puddle); bump = mix(0.35, 0.0, puddle); reflK = mix(0.42, 0.95, puddle);
-#ifdef REALMAP
-    float park = texture2D(tLight, (p - uLightRect.xy) / uLightRect.zw).g;
-    vec3 grass4 = vec3(0.020, 0.050, 0.018) * (0.6 + 0.9 * nLow) * (0.8 + 0.4 * vnoise(p * 7.0));
-    albedo = mix(albedo, grass4, park); puddle *= 1.0 - park; rough = mix(rough, 0.95, park); reflK *= 1.0 - park; bump = mix(bump, 0.9, park);
-#endif
-  }
-#elif MODE == 5
+  // ---------------- open paving between buildings, with parks painted in
+  vec2 sc4 = p / 0.61; vec2 cell4 = floor(sc4); vec2 sf4 = fract(sc4);
+  float fw4 = fwidth(sc4.x) + fwidth(sc4.y);
+  float joint4 = (1.0 - smoothstep(0.02 + fw4, 0.035 + fw4, min(min(sf4.x, 1.0 - sf4.x), min(sf4.y, 1.0 - sf4.y)))) / (1.0 + fw4 * 6.0);
+  albedo = vec3(0.145, 0.142, 0.136) * (0.86 + 0.24 * hash12(cell4) * detail) * (0.8 + 0.4 * nLow) + (nHi - 0.5) * 0.02 * detail;
+  albedo *= (1.0 - 0.45 * joint4) * (1.0 - 0.25 * smoothstep(0.75, 0.9, vnoise(p * 2.3)));
+  puddle = smoothstep(0.60, 0.68, nLow + 0.05 * nMid) * level;
+  rough = mix(0.30, 0.03, puddle); bump = mix(0.35, 0.0, puddle); reflK = mix(0.42, 0.95, puddle);
+  float park = texture2D(tLight, (p - uLightRect.xy) / uLightRect.zw).g;
+  vec3 grass4 = vec3(0.020, 0.050, 0.018) * (0.6 + 0.9 * nLow) * (0.8 + 0.4 * vnoise(p * 7.0));
+  albedo = mix(albedo, grass4, park); puddle *= 1.0 - park; rough = mix(rough, 0.95, park); reflK *= 1.0 - park; bump = mix(bump, 0.9, park);
+#else
   // ---------------- grass
   albedo = vec3(0.020, 0.050, 0.018) * (0.6 + 0.9 * nLow) * (0.8 + 0.4 * vnoise(p * 7.0));
   puddle = 0.0; rough = 0.95; bump = 0.9; reflK = 0.0;
-#elif MODE == 1
-  // ---------------- concrete sidewalk ----------------
-  float roadD = min(avD, stD);
-  vec2 sc = p / 0.61;
-  vec2 cell = floor(sc); vec2 sf = fract(sc);
-  float fw = fwidth(sc.x) + fwidth(sc.y);
-  float jointK = 1.0 - smoothstep(0.02 + fw, 0.035 + fw, min(min(sf.x, 1.0 - sf.x), min(sf.y, 1.0 - sf.y)));
-  jointK *= 1.0 / (1.0 + fw * 6.0);
-  float tone = 0.86 + 0.24 * hash12(cell) * detail;
-  albedo = vec3(0.145, 0.142, 0.136) * tone * (0.8 + 0.4 * nLow) + (nHi - 0.5) * 0.02 * detail;
-  albedo *= 1.0 - 0.45 * jointK;
-  float kerbBand = 1.0 - smoothstep(0.16, 0.2, roadD);
-  albedo = mix(albedo, vec3(0.17, 0.17, 0.168) * (0.9 + 0.2 * nMid), kerbBand);
-  // stained, darker strip near the kerb and random gum / oil spots
-  albedo *= 1.0 - 0.25 * smoothstep(0.75, 0.9, vnoise(p * 2.3)) ;
-  puddle = smoothstep(0.60, 0.68, nLow + 0.05 * nMid);
-  rough = mix(0.30, 0.03, puddle);
-  bump = mix(0.35, 0.0, puddle);
-  reflK = mix(0.42, 0.95, puddle);
-  if (vN.y < 0.5) { albedo = vec3(0.10, 0.10, 0.098) * (0.8 + 0.4 * nMid); N = normalize(vN); reflK = 0.0; }
-#else
-  // ---------------- park: lawn, paths, plaza ----------------
-  float path = 0.0;
-  path = max(path, 1.0 - smoothstep(4.6, 4.8, abs(p.x)));                         // central promenade
-  path = max(path, 1.0 - smoothstep(6.5, 6.7, abs(p.y - (${(LAKE_Z + 8).toFixed(1)}))));  // waterfront walk
-  path = max(path, 1.0 - smoothstep(3.0, 3.2, abs(p.y - (${(Z_NORTH - 4).toFixed(1)}))));  // street-side walk
-  path = max(path, 1.0 - smoothstep(2.4, 2.6, abs(abs(p.x) - 60.0 - (p.y - ${Z_NORTH.toFixed(1)}) * 0.45)));
-  path = max(path, 1.0 - smoothstep(26.0, 26.3, length(p - vec2(0.0, ${(LAKE_Z + 34).toFixed(1)}))));  // plaza disc
-  vec2 pc = p / 1.2; vec2 pf = fract(pc);
-  float fw2 = fwidth(pc.x) + fwidth(pc.y);
-  float pj = (1.0 - smoothstep(0.02 + fw2, 0.04 + fw2, min(min(pf.x, 1.0 - pf.x), min(pf.y, 1.0 - pf.y)))) / (1.0 + fw2 * 6.0);
-  vec3 paver = vec3(0.12, 0.115, 0.11) * (0.85 + 0.3 * hash12(floor(pc))) * (1.0 - 0.4 * pj);
-  vec3 grass = vec3(0.020, 0.050, 0.018) * (0.6 + 0.9 * nLow) * (0.8 + 0.4 * vnoise(p * 7.0));
-  albedo = mix(grass, paver, path);
-  puddle = path * smoothstep(0.58, 0.66, nLow);
-  rough = mix(mix(0.95, 0.3, path), 0.03, puddle);
-  bump = mix(0.9, 0.3, path) * (1.0 - puddle);
-  reflK = mix(0.0, 0.45, path); reflK = mix(reflK, 0.95, puddle);
 #endif
 
   // micro normal from noise gradient + rain ripples in standing water
@@ -256,40 +151,12 @@ void main(){
   float m0 = vnoise(p * 2.3), mx = vnoise((p + vec2(0.15, 0.0)) * 2.3), mz = vnoise((p + vec2(0.0, 0.15)) * 2.3);
   vec2 grad2 = vec2(mx - m0, mz - m0);
   vec2 rip = ripple(p, uTime) * puddle * 0.05 * smoothstep(70.0, 12.0, dist) * uRain;
-  vec2 tilt = (grad * 0.26 + grad2 * 0.10) * bump + rip + extraTilt;
+  vec2 tilt = (grad * 0.26 + grad2 * 0.10) * bump + rip;
   if (vN.y > 0.5) N = normalize(normalize(vN) + vec3(-tilt.x, 0.0, -tilt.y));
 
-  // ---------------- lighting ----------------
+  // ---------------- lighting
   vec3 light = uAmbient;
-#ifdef REALMAP
-  light += LAMP_COLOR * texture2D(tLight, (P.xz - uLightRect.xy) / uLightRect.zw).r * 3.0;
-#else
-  light += LAMP_COLOR * lampSum(P) * 7.5;
-#endif
-#if MODE == 2
-  {
-    // park lamps: a row along the waterfront walk and a pair of rows down the promenade
-    float kx = floor(P.x / 22.0 + 0.5) * 22.0;
-    for (int o = -1; o <= 1; o++) { float lx = kx + float(o) * 22.0; if (abs(lx) < 200.0) light += LAMP_COLOR * lampFall(P, vec3(lx, 5.2, PARK_WATER_Z)) * 6.0; }
-    for (int j = 0; j < 4; j++) { float lz = Z_NORTH - 12.0 - 22.0 * float(j); light += LAMP_COLOR * (lampFall(P, vec3(-5.6, 5.2, lz)) + lampFall(P, vec3(5.6, 5.2, lz))) * 6.0; }
-  }
-#endif
-#if MODE == 1
-  if (P.x < -536.0 && P.z > 0.0 && P.z < 262.0) {
-    // Seattle Center: pedestrian lamps on a 44 m grid
-    vec2 b = floor((P.xz - vec2(-730.0, 30.0)) / 44.0 + 0.5);
-    for (int ox = -1; ox <= 1; ox++) for (int oz = -1; oz <= 1; oz++) {
-      vec2 k = b + vec2(float(ox), float(oz));
-      if (k.x < 0.0 || k.x > 4.0 || k.y < 0.0 || k.y > 5.0) continue;
-      light += LAMP_COLOR * lampFall(P, vec3(-730.0 + k.x * 44.0, 6.2, 30.0 + k.y * 44.0)) * 9.0;
-    }
-  }
-  if (P.x < -452.0 && P.z > 345.0) {
-    // Pike Place deck lamps
-    float kd = floor(P.z / 22.0 + 0.5);
-    for (int o = -1; o <= 1; o++) light += LAMP_COLOR * lampFall(P, vec3(-512.0, hillF(-512.0) + 5.3, (kd + float(o)) * 22.0)) * 7.0;
-  }
-#endif
+  light += LAMP_COLOR * texture2D(tLight, (p - uLightRect.xy) / uLightRect.zw).r * 3.0;
   for (int i = 0; i < 12; i++) {
     if (uHeadPos[i].w <= 0.0) continue;
     vec3 L = P - uHeadPos[i].xyz; float d = length(L); vec3 ld = L / max(d, 1e-3);
@@ -303,7 +170,7 @@ void main(){
   }
   vec3 col = albedo * light * mix(1.0, 0.72, puddle);
 
-  // ---------------- mirror-like wet reflection ----------------
+  // ---------------- mirror-like wet reflection
   float NdV = clamp(dot(N, V), 0.0, 1.0);
   float fres = 0.035 + 0.965 * pow(1.0 - NdV, 5.0);
   float pd = dot(uPlane.xyz, P) + uPlane.w;
@@ -317,10 +184,10 @@ void main(){
     refl += min(textureLod(tReflect, ruv + o, lod).rgb, vec3(48.0)) * w; wsum += w;
   }
   refl /= wsum;
-  // the mirror image is only valid on ground level with the mirror plane; elsewhere reflect the sky
+  // the mirror image is only valid on ground lying in the mirror plane; elsewhere reflect the sky
   float onPlane = 1.0 - smoothstep(0.45, 0.9, abs(pd));
   vec3 Rv = reflect(-V, N);
-  vec3 skyR = skyColor(normalize(vec3(Rv.x, abs(Rv.y) + 0.03, Rv.z)), uTime) * 1.5 + LAMP_COLOR * lampSum(P + vec3(Rv.x, 0.0, Rv.z) * 9.0) * 0.5;
+  vec3 skyR = skyColor(normalize(vec3(Rv.x, abs(Rv.y) + 0.03, Rv.z)), uTime) * 1.5;
   refl = mix(skyR, refl, onPlane);
   col += refl * fres * reflK * 1.6;
 
@@ -329,46 +196,12 @@ void main(){
   gl_FragColor = vec4(clamp(col, vec3(0.0), vec3(48.0)), 1.0);
 }`;
 
-function loadTex(path, srgb) {
-  const t = new THREE.TextureLoader().load(path);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-function roundedRect(x0, x1, z0, z1, r) {
-  // r = corner radii [NW, NE, SE, SW]; shape y = -z (the extrusion is rotated to lie flat)
-  const [rnw, rne, rse, rsw] = Array.isArray(r) ? r : [r, r, r, r];
-  const s = new THREE.Shape();
-  const y0 = -z1, y1 = -z0;
-  s.moveTo(x0 + rsw, y0);
-  s.lineTo(x1 - rse, y0); if (rse) s.quadraticCurveTo(x1, y0, x1, y0 + rse);
-  s.lineTo(x1, y1 - rne); if (rne) s.quadraticCurveTo(x1, y1, x1 - rne, y1);
-  s.lineTo(x0 + rnw, y1); if (rnw) s.quadraticCurveTo(x0, y1, x0, y1 - rnw);
-  s.lineTo(x0, y0 + rsw); if (rsw) s.quadraticCurveTo(x0, y0, x0 + rsw, y0);
-  return s;
-}
-function slab(x0, x1, z0, z1, r, hill) {
-  const g = new THREE.ExtrudeGeometry(roundedRect(x0, x1, z0, z1, r), { depth: CURB, bevelEnabled: false, curveSegments: 4 }).rotateX(-Math.PI / 2);
-  if (hill) { const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, p.getY(i) + hillF(p.getX(i))); g.computeVertexNormals(); }
-  return g;
-}
-// flat quad or, with xs given, a strip that follows the hill profile
-function patch(x0, x1, z0, z1, xs) {
-  const cols = xs || [x0, x1];
-  const pos = [], idx = [];
-  cols.forEach((x, i) => { const y = xs ? hillF(x) : 0; pos.push(x, y, z0, x, y, z1); if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 3, a, a + 3, a + 2); } });
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-  return g;
-}
-
-export function createGround(reflection, opts = {}) {
-  const shared = {
+export function createGround(reflection) {
+  const uniforms = {
     tReflect: { value: reflection.rt.texture },
     uReflectMatrix: { value: reflection.textureMatrix },
-    uTime: { value: 0 }, uPlaneY: { value: 0 }, uPlane: { value: new THREE.Vector4(0, 1, 0, 0) }, uRain: { value: 1 },
     tLight: { value: null }, uLightRect: { value: new THREE.Vector4(0, 0, 1, 1) },
-    tBrick: { value: loadTex('/assets/tex/brick_pavement_02_diff.jpg', true) }, tBrickN: { value: loadTex('/assets/tex/brick_pavement_02_nor.jpg', false) },
+    uTime: { value: 0 }, uPlane: { value: new THREE.Vector4(0, 1, 0, 0) }, uRain: { value: 1 },
     uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) },
     uFogDensity: { value: FOG_DENSITY },
     uAmbient: { value: new THREE.Color(0.20, 0.30, 0.50) },
@@ -377,40 +210,7 @@ export function createGround(reflection, opts = {}) {
     uGlow: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, -100, 0, 1)) },
     uGlowCol: { value: Array.from({ length: 8 }, () => new THREE.Color(0, 0, 0)) },
   };
-  const mk = (mode) => new THREE.ShaderMaterial({
-    uniforms: shared, vertexShader: VERT, fragmentShader: FRAG, defines: opts.real ? { MODE: mode, REALMAP: 1 } : { MODE: mode },
-  });
-  if (opts.real) { const group = new THREE.Group(); return { group, uniforms: shared, mk }; }
-
-  const group = new THREE.Group();
-  // road surface: level everywhere except the downtown hill, which gets its own stepped strip
-  const hillXs = [-520, -448];
-  for (let k = 0; k < 4; k++) hillXs.push(-432 + 88 * k, -360 + 88 * k);
-  hillXs.push(-96);
-  const road = new THREE.Mesh(mergeGeometries([
-    patch(-1500, 900, -1100, HILL_Z), patch(-96, 900, HILL_Z, 1500), patch(-520, -96, HILL_Z, 1500, hillXs),
-  ]), mk(0));
-  road.frustumCulled = false;
-  group.add(road);
-
-  const geos = [];
-  for (const c of cityCells()) {
-    if (c.kind === 'bay') continue;
-    const R = 4.5, r = c.roads;
-    geos.push(slab(c.x0, c.x1, c.z0, c.z1, [r.n && r.w ? R : 0, r.n && r.e ? R : 0, r.s && r.e ? R : 0, r.s && r.w ? R : 0], c.hill));
-    // north sidewalk of Lenora St: it slopes with the street while the block above stays level
-    if (c.cliff && c.x0 >= -440) geos.push(slab(c.x0, c.x1, HILL_Z, 345, [0, 0, r.e ? R : 0, r.w ? R : 0], true));
-  }
-  const slabs = new THREE.Mesh(mergeGeometries(geos), mk(1));
-  slabs.frustumCulled = false;
-  group.add(slabs);
-
-  const parkShape = roundedRect(-420, 420, LAKE_Z, Z_NORTH, 2);
-  const parkGeo = new THREE.ExtrudeGeometry(parkShape, { depth: CURB, bevelEnabled: false }).rotateX(-Math.PI / 2);
-  const park = new THREE.Mesh(parkGeo, mk(2));
-  group.add(park);
-
-  group.traverse(o => o.layers.set(1));
-  void heightAt;
-  return { group, uniforms: shared };
+  // mk(mode) makes a material for one of the surfaces listed at the top of this file
+  const mk = (mode) => new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG, defines: { MODE: mode } });
+  return { uniforms, mk };
 }

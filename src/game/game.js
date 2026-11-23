@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import { Van, groundHeight } from './van.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
-import { PIKE } from '../world/market.js';
-import { AVENUES, STREETS, DENNY, CURB, Z_NORTH, LAKE_Z, heightAt, avenueAt, streetAt, avenueName, CAMPUS, MARKET, routeBetween, district, DISTRICT_LABEL } from '../config.js';
+import { CURB, heightAt, routeBetween, district, DISTRICT_LABEL } from '../config.js';
 
 const SHIFT_TIME = 120, MAX_JOBS = 4, THROW_T = 0.8, GRAV = 18, RANGE = 36;
 // job types: colour, HUD colour and tag
@@ -15,50 +14,7 @@ const KINDS = {
   tram: { col: [1.7, 0.7, 2.8], css: '#c77dff', tag: 'STREETCAR', base: 350 },
   boat: { col: [0.6, 1.3, 2.9], css: '#7fb6ff', tag: 'DOCK', base: 300 },
 };
-const TRAM_ROOF = 3.55, DOCK_Y = -0.07;
-const DOCKS = [[30, LAKE_Z - 28, 5, 56], [78, LAKE_Z - 34, 5, 68], [126, LAKE_Z - 24, 4, 48], [54, LAKE_Z - 54, 52, 3.5]];
-const onDock = (x, z) => (x > -112 && x < -22 && z > LAKE_Z - 78) || DOCKS.some(([dx, dz, w, d]) => Math.abs(x - dx) < w / 2 && Math.abs(z - dz) < d / 2);
-
-const GRID_POIS = [
-  { name: 'Whole Foods Market', sub: 'Westlake Ave & Denny Way', x: -30, z: 258, r: 34 },
-  { name: 'Lake Union Park', sub: 'Twelve acres on the south shore', x: 0, z: -286, r: 30 },
-  { name: 'MOHAI', sub: 'Museum of History & Industry', x: -60, z: -345, r: 44 },
-  { name: 'Center for Wooden Boats', sub: 'Historic boats on the water', x: 70, z: -360, r: 42 },
-  { name: 'Mercer Street', sub: 'The famous Mercer Mess', x: 0, z: -176, r: 16 },
-  { name: 'Amazon Campus', sub: 'Terry Ave N', x: 88, z: 40, r: 30 },
-  { name: 'Space Needle View', sub: 'Look west along Thomas St', x: -66, z: 88, r: 20 },
-  { name: 'Streetcar Line', sub: 'The South Lake Union Trolley', x: 5, z: 44, r: 14 },
-  { name: 'Westlake Center', sub: 'Heart of the retail core', x: -100, z: 610, r: 26 },
-  { name: 'Westlake Park', sub: 'The holiday tree is lit', x: -132, z: 640, r: 24 },
-  { name: 'Monorail', sub: 'Built for the 1962 World’s Fair', x: -88, z: 440, r: 16 },
-  { name: 'Pacific Place', sub: 'Downtown shopping', x: 60, z: 616, r: 22 },
-  { name: 'Pike Street Hill', sub: 'Four blocks, four drops', x: -200, z: 704, r: 18 },
-  { name: 'Pike Place Market', sub: 'Public Market Center, est. 1907', x: -440, z: 704, r: 30 },
-  { name: 'Elliott Bay Overlook', sub: 'The Great Wheel across the water', x: -500, z: 620, r: 26 },
-  { name: 'Space Needle', sub: '605 feet of 1962 optimism', x: -640, z: 92, r: 48 },
-  { name: 'Glass Garden', sub: 'Blown-glass sculpture under lights', x: -590, z: 190, r: 34 },
-  { name: 'International Fountain', sub: 'Seattle Center', x: -700, z: 50, r: 30 },
-];
-
-// Places that hand you cargo for a cross-town run.
-// Places that hand you cargo for a cross-town run (the market's shops are added when the world is built).
-// rule: fragile = cornering force that starts to damage it, gentle = hand over below 20 mph,
-//       heavy = slows the van, chilled = on a clock, toss = you have to catch it first.
-const BASE_SOURCES = [
-  { name: 'Whole Foods Market', x: -40, z: DENNY.z + 5.3, cargo: 'GROCERIES', rule: { fragile: 8.5, gentle: true } },
-];
-// A close look at a landmark: stop the van here and the camera takes over.
-const BASE_STOPS = [
-  { name: 'Public Market Center', sub: 'The sign and clock, lit since the 1930s', x: -420, z: 701.6, look: [-450, -15.5, 704], dist: 34, lift: -6 },
-  { name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: -606, z: 124, look: [-640, 84, 92], dist: 150, lift: -78 },
-  { name: 'Glass Garden', sub: 'Blown glass, lit from within', x: -572, z: 190, look: [-590, 3.5, 190], dist: 26, lift: 0.5 },
-  { name: 'Westlake Park', sub: 'The holiday tree at the heart of the retail core', x: -132, z: 620, look: [-132, 0, 643], dist: 30, lift: 3, relY: true },
-];
-const CAMPUS_STOPS = [
-  { x: -640, z: 124, name: 'Space Needle Base' }, { x: -590, z: 214, name: 'Glass Garden Entrance' },
-  { x: -700, z: 84, name: 'International Fountain' }, { x: -556, z: 150, name: 'Monorail Station' }, { x: -686, z: 226, name: 'Armory Food Hall' },
-];
-const GRID_START = [1.9, 238, -Math.PI / 2];
+const TRAM_ROOF = 3.55;
 
 function angleLerp(a, b, t) { let d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; return a + d * t; }
 
@@ -125,7 +81,7 @@ export function initGame(app) {
       p.vy -= p.grav * dt; const k = Math.exp(-p.drag * dt); p.vx *= k; p.vy *= k; p.vz *= k;
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
       const fl = heightAt(p.x, p.z) + 0.02;
-      if (p.y < fl && p.z > LAKE_Z) { p.y = fl; p.vy *= -0.3; }
+      if (p.y < fl) { p.y = fl; p.vy *= -0.3; }
       const f = Math.max(0, p.life / p.max);
       pPos[i * 3] = p.x; pPos[i * 3 + 1] = p.y; pPos[i * 3 + 2] = p.z;
       pCol[i * 3] = p.r * f; pCol[i * 3 + 1] = p.g * f; pCol[i * 3 + 2] = p.b * f;
@@ -177,18 +133,14 @@ export function initGame(app) {
     if (t.kind === 'tram') { const ax = Math.cos(t.h || Math.PI / 2), az = Math.sin(t.h || Math.PI / 2), dx = x - px, dz = z - pz; return Math.max(Math.abs(-dx * az + dz * ax) * 2.0, Math.abs(dx * ax + dz * az) * 0.33); }
     return Math.hypot(x - px, z - pz);
   };
-  const tramRoof = () => { const tr = world.streetcar.state; return heightAt(tr.x, tr.z) + TRAM_ROOF + (REAL ? 0.12 : 0); };
+  const tramRoof = () => { const tr = world.streetcar.state; return heightAt(tr.x, tr.z) + TRAM_ROOF + 0.12; };
   // how far it is to drive from a to b along the streets
   const routeLen = (ax, az, bx, bz) => { const p = routeBetween(ax, az, bx, bz); let d = 0; for (let i = 1; i < p.length; i++) d += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]); return d; };
   const surfaceY = (x, z) => {
     const tr = world.streetcar.state, ax = Math.cos(tr.h ?? Math.PI / 2), az = Math.sin(tr.h ?? Math.PI / 2), dx = x - tr.x, dz = z - tr.z;
     if (Math.abs(-dx * az + dz * ax) < 1.5 && Math.abs(dx * ax + dz * az) < 9.9) return tramRoof();
-    if (REAL) {
-      if (world.dock && Math.hypot(x - world.dock.x, z - world.dock.z) < 3.7) return world.dock.y;
-      return world.inWater(x, z) ? world.waterLevel(x, z) - 0.1 : groundHeight(x, z);
-    }
-    if (z < LAKE_Z - 0.6) return onDock(x, z) ? DOCK_Y : -0.62;
-    return groundHeight(x, z);
+    if (world.dock && Math.hypot(x - world.dock.x, z - world.dock.z) < 3.7) return world.dock.y;
+    return world.inWater(x, z) ? world.waterLevel(x, z) - 0.1 : groundHeight(x, z);
   };
   const clearTargets = () => { for (const t of targets) scene.remove(t.g); targets.length = 0; };
 
@@ -262,9 +214,7 @@ export function initGame(app) {
   const cupMat = new THREE.MeshStandardMaterial({ color: 0xf4efe6, roughness: 0.5, emissive: 0xffa040, emissiveIntensity: 0.9 });
   const sleeveGeo = new THREE.CylinderGeometry(0.262, 0.232, 0.3, 20, 1, true).translate(0, 0.36, 0);
   const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x6a3d1c, roughness: 0.8, emissive: 0x4a2408, emissiveIntensity: 1 });
-  const pickups = (world.coffeeSpots || [[1.8, 150], [-1.8, -40], [-44, 91.5], [44, -84.5], [-84.5, 30], [84.5, -130], [30, -260.5], [-40, 172.5], [1.8, -215], [60, 3.5],
-    [-90.9, 400], [1.9, 480], [85.1, 560], [-40, 618.4], [-220, 706.4], [-355, 600], [-437, 500], [-130, 442.4], [40, 706.4], [-300, 354.4],
-    [-250, DENNY.z - 5.3], [-420, DENNY.z + 5.3], [-525, 120], [-330, 2.4], [-620, 160], [-680, 110]]).map(([x, z]) => {
+  const pickups = world.coffeeSpots.map(([x, z]) => {
     const g = new THREE.Group();
     g.add(new THREE.Mesh(cupGeo, cupMat), new THREE.Mesh(sleeveGeo, sleeveMat));
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ color: new THREE.Color(1.6, 0.8, 0.25), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, map: haloTex() }));
@@ -282,15 +232,10 @@ export function initGame(app) {
   try { best = Number(localStorage.getItem('emerald-dash-best') || 0); } catch { /* storage unavailable */ }
 
   // ---------------------------------------------------------------- dispatch: one continuous city, jobs appear near the van
-  const REAL = !!world.real;
-  const POIS = world.pois || GRID_POIS;
-  const SOURCES = world.sources || [...BASE_SOURCES, ...world.pike.sources];
-  const STOPS = world.stops || [...BASE_STOPS, ...world.pike.stops];
-  const START = world.start || GRID_START;
+  const POIS = world.pois, SOURCES = world.sources, STOPS = world.stops, START = world.start;
   const PLACES = POIS.length + STOPS.length;
-  const inSlow = (x, z) => world.inSlow ? world.inSlow(x, z) : x > PIKE.slow.x0 && x < PIKE.slow.x1 && z > PIKE.slow.z0 && z < PIKE.slow.z1;
-  const campusLots = (REAL ? [] : CAMPUS_STOPS).map(c => ({ name: c.name, door: { x: c.x, z: c.z }, district: 'center', x0: c.x, x1: c.x, z0: c.z, z1: c.z }));
-  const allLots = () => [...world.buildings.lots.filter(l => l.name && l.door && l.type !== 'grocery' && l.district !== 'none'), ...campusLots];
+  const inSlow = world.inSlow;
+  const allLots = () => world.buildings.lots.filter(l => l.name && l.door);
   const busy = (l) => targets.some(t => !t.done && (t.name === l.name || t.dest === l));
   const pickLot = (cx, cz, dMin, dMax) => {
     const d = (l) => Math.hypot(l.door.x - cx, l.door.z - cz);
@@ -307,25 +252,25 @@ export function initGame(app) {
       const r = Math.random();
       const hasPick = !!S.cargo || live.some(t => t.kind === 'pickup' || t.kind === 'grocery');
       const tramOk = Math.hypot(tr.x - vx, tr.z - vz) < 230 && !live.some(t => t.kind === 'tram');
-      const dockAt = REAL ? world.dock && world.dock.stand : { x: 30, z: LAKE_Z };
-      const lakeOk = dockAt && Math.hypot(vx - dockAt.x, vz - dockAt.z) < (REAL ? 480 : 380) && !live.some(t => t.kind === 'boat');
+      const dockAt = world.dock && world.dock.stand;
+      const lakeOk = dockAt && Math.hypot(vx - dockAt.x, vz - dockAt.z) < 480 && !live.some(t => t.kind === 'boat');
       kind = r < 0.15 && !hasPick && S.delivered >= 1 && SOURCES.length ? 'pickup' : r < 0.30 && !live.some(t => t.kind === 'rush') && S.delivered >= 1 ? 'rush' : r < 0.40 && tramOk ? 'tram' : r < 0.48 && lakeOk ? 'boat' : 'parcel';
     }
     let t;
     if (kind === 'tram') { t = makeTarget('tram', tr.x, tr.z, tramRoof(), 'Streetcar roof'); t.far = 60 + routeLen(vx, vz, tr.x, tr.z); hud.toast('Streetcar drop', 'Land one on the roof as it moves'); }
     else if (kind === 'boat') {
-      if (REAL) { if (!world.dock) return null; t = makeTarget('boat', world.dock.x, world.dock.z, world.dock.y, 'Floating dock'); t.far = routeLen(vx, vz, world.dock.stand.x, world.dock.stand.z); }
-      else { t = makeTarget('boat', 30, LAKE_Z - 9, DOCK_Y, 'Houseboat dock'); t.far = routeLen(vx, vz, 30, LAKE_Z + 6); }
+      if (!world.dock) return null;
+      t = makeTarget('boat', world.dock.x, world.dock.z, world.dock.y, 'Floating dock'); t.far = routeLen(vx, vz, world.dock.stand.x, world.dock.stand.z);
       hud.toast('Dock drop', 'Throw from the waterfront, out over the water');
     }
     else if (kind === 'pickup') {
       const src = SOURCES.reduce((b, c) => Math.hypot(c.x - vx, c.z - vz) < Math.hypot(b.x - vx, b.z - vz) ? c : b);
-      const dest = pickLot(src.x, src.z, REAL ? 280 : 200, REAL ? 950 : 640); if (!dest) return null;
+      const dest = pickLot(src.x, src.z, 280, 950); if (!dest) return null;
       t = makeTarget('pickup', src.x, src.z, heightAt(src.x, src.z), src.name); t.dest = dest; t.cargo = src.cargo; t.rule = src.rule || {}; t.from = src.from;
       t.far = routeLen(src.x, src.z, dest.door.x, dest.door.z);
       hud.toast('Cross-town run', `Collect ${src.cargo.toLowerCase()} at ${src.name}`, 'place');
     } else {
-      const lot = pickLot(vx, vz, kind === 'rush' ? 140 : 75, kind === 'rush' ? (REAL ? 400 : 320) : (REAL ? 420 : 340)); if (!lot) return null;
+      const lot = pickLot(vx, vz, kind === 'rush' ? 140 : 75, kind === 'rush' ? 400 : 420); if (!lot) return null;
       t = makeTarget(kind, lot.door.x, lot.door.z, doorY(lot.door), lot.name);
       t.far = routeLen(vx, vz, lot.door.x, lot.door.z);
       if (kind === 'rush') { t.expire = Math.round(12 + t.far / 9); hud.toast('Rush order!', `${t.name} · ${t.expire} s · triple pay`, 'rush'); audio.play('bell'); }
@@ -393,7 +338,7 @@ export function initGame(app) {
     if (e.code === 'KeyE' && S.mode !== 'play') startShift(true);
     if (e.code === 'Escape' && S.mode === 'play') endShift(false);
     if (e.code === 'Tab' && S.mode === 'play') { e.preventDefault(); S.navSkip = (S.navSkip || 0) + 1; }
-    if (e.code === 'Space' && S.mode === 'play') { if (S.post) { S.post = null; hud.postcard(null); } else if (S.toss) catchToss(); else throwParcel(); }
+    if (e.code === 'Space' && S.mode === 'play') { if (S.toss) { if (S.post) { S.post = null; hud.postcard(null); } catchToss(); } else if (S.post) { S.post = null; hud.postcard(null); } else throwParcel(); }
     if (e.code === 'KeyR' && S.mode === 'play') { const a = nearestRoadPoint(van.pos.x, van.pos.z); van.reset(a.x, a.z, a.h); }
     if (e.code === 'KeyM') hud.toast(audio.toggleMute() ? 'Sound off' : 'Sound on');
     if (e.code === 'KeyT') setWeather(!S.clear);
@@ -415,13 +360,7 @@ export function initGame(app) {
     hud.toast(clear ? 'Clear evening' : 'Rain', clear ? 'Dry air, long afterglow' : 'Back to Seattle weather');
   }
 
-  function nearestRoadPoint(x, z) {
-    if (world.nearestRoad) return world.nearestRoad(x, z);
-    let best = null, bd = 1e9;
-    for (const a of AVENUES) { if (!avenueAt(a, z)) continue; const d = Math.abs(a.x - x); if (d < bd) { bd = d; best = { x: a.x + (a.hw > 9 ? 1.9 : (a.hw - 2.2) / 2), z: THREE.MathUtils.clamp(z, a.z0 + 14, a.z1 - 14), h: -Math.PI / 2 }; } }
-    for (const st of STREETS) { if (!streetAt(st, x) || x < -540 || x > 100) continue; const d = Math.abs(st.z - z); if (d < bd) { bd = d; best = { x, z: st.z + (st.hw > 9 ? 1.9 : (st.hw - 2.2) / 2), h: 0 }; } }
-    return best || { x: 1.9, z: 238, h: -Math.PI / 2 };
-  }
+  const nearestRoadPoint = (x, z) => world.nearestRoad(x, z);
 
   // nearest live target and where a parcel thrown right now would land
   const aim = { target: null, side: 1, L: 7, land: new THREE.Vector3(), ok: 0 };
@@ -457,7 +396,7 @@ export function initGame(app) {
   function land(p) {
     p.landed = true;
     const px = p.m.position.x, pz = p.m.position.z;
-    const wet = REAL ? world.inWater(px, pz) && !(world.dock && Math.hypot(px - world.dock.x, pz - world.dock.z) < 3.7) : pz < LAKE_Z - 0.6 && !onDock(px, pz);
+    const wet = world.inWater(px, pz) && !(world.dock && Math.hypot(px - world.dock.x, pz - world.dock.z) < 3.7);
     if (wet) {       // into the water
       for (let i = 0; i < 20; i++) { const a = Math.random() * 6.28; emit(px, p.m.position.y + 0.1, pz, Math.cos(a) * 2.5, 3 + Math.random() * 4, Math.sin(a) * 2.5, 0.6, 0.2, 0.5, 0.7, 0.9, 12, 1); }
       p.active = false; p.m.visible = false;
@@ -504,18 +443,7 @@ export function initGame(app) {
     return { x: (v3.x * 0.5 + 0.5) * innerWidth, y: (-v3.y * 0.5 + 0.5) * innerHeight, behind: v3.z > 1 };
   }
 
-  function streetName() {
-    const { x, z } = van.pos;
-    if (world.streetName) return world.streetName(x, z);
-    if (z < Z_NORTH) return z < LAKE_Z + 30 ? 'Lake Union Waterfront' : 'Lake Union Park';
-    if (x < CAMPUS.x1 && z > CAMPUS.z0 && z < CAMPUS.z1) return 'Seattle Center';
-    if (x < MARKET.x1 && z > MARKET.z0) return 'Pike Place Market';
-    const a = AVENUES.find(a => Math.abs(x - a.x) < a.hw + 1 && avenueAt(a, z)), s = STREETS.find(s => Math.abs(z - s.z) < s.hw + 1 && streetAt(s, x));
-    if (a && s && !(a.brick && z > 430)) return `${avenueName(a, z)} & ${s.name}`;
-    if (a && a.brick && z > 430) return s ? `Pike Place & ${s.name}` : 'Pike Place';
-    if (a) return avenueName(a, z); if (s) return s.name;
-    return 'Sidewalk';
-  }
+  const streetName = () => world.streetName(van.pos.x, van.pos.z);
 
   // ---------------------------------------------------------------- camera
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), lookSm = new THREE.Vector3(), tmp2 = new THREE.Vector3();
@@ -573,7 +501,7 @@ export function initGame(app) {
   let frameN = 0;
   const album = new Set();
   try { for (const n of JSON.parse(localStorage.getItem('emerald-dash-album') || '[]')) if (POIS.some(p => p.name === n) || STOPS.some(p => p.name === n)) album.add(n); } catch { /* ignore */ }
-  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length + STOPS.length, REAL, world.credit);
+  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length + STOPS.length, world.credit);
   showTitle();
   hud.setClock(SHIFT_TIME, []);
   van.reset(START[0], START[1], START[2]); van.sync();
@@ -604,7 +532,6 @@ export function initGame(app) {
     const slow = playing && inSlow(van.pos.x, van.pos.z);
     van.limit = slow ? 6.2 : 0;
     S.slowK += ((slow ? 1 : 0) - S.slowK) * Math.min(1, dt * 2.2);
-    if (slow && !S.wasSlow && !REAL) hud.banner('Pike Place Market');
     S.wasSlow = slow;
     if (S.post) { input.throttle = 0; input.steer = 0; }
     van.update(dt, input);
@@ -669,7 +596,8 @@ export function initGame(app) {
       if (!S.explore && S.time <= 0) endShift(false);
       // stopping beside a landmark opens its postcard
       S.stillT = van.speed < 0.6 && !S.toss ? S.stillT + dt : 0;
-      if (!S.post && S.stillT > 0.7) {
+      const collecting = targets.some(t => !t.done && t.kind === 'pickup' && Math.hypot(t.x - van.pos.x, t.z - van.pos.z) < 7);
+      if (!S.post && S.stillT > 0.7 && !collecting) {
         const st = STOPS.find(q => Math.hypot(q.x - van.pos.x, q.z - van.pos.z) < 6.5);
         if (st && st !== S.lastStop) {
           S.post = { stop: st, t: 0 }; S.lastStop = st; hud.postcard(st.name, st.sub); audio.play('place');
@@ -846,12 +774,10 @@ export function initGame(app) {
     world.updateLampPool(van.pos);
     // the wet-street mirror sits at whatever level the van is on
     const R = app.reflection, gyv = heightAt(van.pos.x, van.pos.z);
-    if (REAL) {
-      // lay the mirror along the street the van is on
-      const e = 6, nx = -(heightAt(van.pos.x + e, van.pos.z) - heightAt(van.pos.x - e, van.pos.z)) / (2 * e), nz = -(heightAt(van.pos.x, van.pos.z + e) - heightAt(van.pos.x, van.pos.z - e)) / (2 * e);
-      tmp.set(nx, 1, nz).normalize();
-      R.tilted = true; R.normal.lerp(tmp, Math.min(1, dt * 4)).normalize(); R.point.set(van.pos.x, gyv + 0.08, van.pos.z);
-    } else { R.planeY = gyv; R.normal.set(0, 1, 0); R.point.set(0, gyv, 0); }
+    // lay the mirror along the street the van is on
+    const e = 6, nx = -(heightAt(van.pos.x + e, van.pos.z) - heightAt(van.pos.x - e, van.pos.z)) / (2 * e), nz = -(heightAt(van.pos.x, van.pos.z + e) - heightAt(van.pos.x, van.pos.z - e)) / (2 * e);
+    tmp.set(nx, 1, nz).normalize();
+    R.tilted = true; R.normal.lerp(tmp, Math.min(1, dt * 4)).normalize(); R.point.set(van.pos.x, gyv + 0.08, van.pos.z);
     ground.uniforms.uPlane.value.set(R.normal.x, R.normal.y, R.normal.z, -R.normal.dot(R.point));
     updateCube();
 

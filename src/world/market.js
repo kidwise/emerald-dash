@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createGlowPoints } from './props.js';
-import { rng } from './buildings.js';
+import { rng } from './rng.js';
 import { MARKET_Y, CURB } from '../config.js';
 
 // Pike Place Market, built by hand at true scale: the open Main Arcade on the west side of the street

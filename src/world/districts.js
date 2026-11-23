@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FacadeGeo, STYLE, createFacadeMaterial } from './facade.js';
 import { createGlowPoints, darkMetal } from './props.js';
-import { rng } from './buildings.js';
-import { AVENUES, STREETS, DENNY, CURB, MARKET_Y, MARKET, CAMPUS, FOG_COLOR, FOG_DENSITY, heightAt, isNode } from '../config.js';
+import { rng } from './rng.js';
+import { CURB, MARKET_Y, MARKET, FOG_COLOR, FOG_DENSITY, heightAt } from '../config.js';
 
 // Landmarks of the downtown and Seattle Center districts.
 const box = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
@@ -31,15 +31,12 @@ export function signPlane(tex, w, h, x, y, z, ry, k = 2.3) {
 }
 
 // ---------------------------------------------------------------- monorail
-export function createMonorail(obstacles, custom = null) {
+// custom = { pts: [[x, z], ...] centre line, inJunction(x, z), heightAt(x, z) }
+export function createMonorail(obstacles, custom) {
   const group = new THREE.Group();
-  const gy = (custom && custom.heightAt) || (() => 0);
-  const BEAM_Y = 9.2, X5 = -88, ZD = DENNY.z, R = 34;
-  // centre line: north up 5th Ave, a sweeping left onto Denny Way, west to Seattle Center
-  const pts = [new THREE.Vector2(X5, 606), new THREE.Vector2(X5, ZD + R)];
-  for (let k = 1; k <= 10; k++) { const a = (k / 10) * Math.PI / 2; pts.push(new THREE.Vector2(X5 - R + Math.cos(a) * R, ZD + R - Math.sin(a) * R)); }
-  pts.push(new THREE.Vector2(-548, ZD));
-  if (custom) { pts.length = 0; for (const p of custom.pts) pts.push(new THREE.Vector2(p[0], p[1])); }
+  const gy = custom.heightAt || (() => 0);
+  const BEAM_Y = 9.2;
+  const pts = custom.pts.map(p => new THREE.Vector2(p[0], p[1]));
   const cum = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
   const total = cum[cum.length - 1];
@@ -65,7 +62,7 @@ export function createMonorail(obstacles, custom = null) {
   }
   // T pylons down the middle of the road, never inside a junction
   const P = { x: 0, z: 0, h: 0 };
-  const inJunction = custom ? custom.inJunction : (x, z) => AVENUES.some(a => STREETS.some(s => isNode(a, s) && Math.abs(x - a.x) < a.hw + 10 && Math.abs(z - s.z) < s.hw + 10));
+  const inJunction = custom.inJunction;
   for (let s = 10; s < total - 6; s += 24) {
     at(s, P);
     if (inJunction(P.x, P.z)) continue;
@@ -74,16 +71,9 @@ export function createMonorail(obstacles, custom = null) {
     geos.push(new THREE.BoxGeometry(1.3, 0.9, 4.6).rotateY(-P.h).translate(P.x, py + BEAM_Y - 1.0, P.z));
     obstacles.push({ x: P.x, z: P.z, r: 0.75 });
   }
-  // stations: a canopy at each end
-  for (const [sx, sz, w, d] of custom ? [] : [[X5, 598, 9, 26], [-545, ZD, 22, 9]]) {
-    geos.push(box(w, 0.35, d, sx, BEAM_Y + 4.4, sz), box(w, 0.3, d, sx, BEAM_Y - 0.2, sz));
-    for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) geos.push(box(0.3, 4.6, 0.3, sx + ox * (w / 2 - 0.4), BEAM_Y + 2.1, sz + oz * (d / 2 - 0.4)));
-  }
   const concrete = new THREE.MeshStandardMaterial({ color: 0x5a5b5d, roughness: 0.7, emissive: 0x23201c, emissiveIntensity: 1.0 });
   const frame = new THREE.Mesh(merge(geos), concrete); frame.frustumCulled = false;
   group.add(frame);
-  const strips = custom ? [box(0.1, 0.1, 0.1, 0, -60, 0)] : [box(8.4, 0.08, 0.25, X5, BEAM_Y + 4.18, 598), box(0.25, 0.08, 8.4, -545, BEAM_Y + 4.18, ZD)];
-  group.add(new THREE.Mesh(merge(strips), hdr(5, 4.2, 3)));
 
   // the train: four cars riding the north/east beam
   const train = new THREE.Group();

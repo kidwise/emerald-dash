@@ -1,5 +1,3 @@
-import { GLSL_LAYOUT } from '../config.js';
-
 export const GLSL_NOISE = /* glsl */`
 float hash11(float p){ p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -43,43 +41,7 @@ vec3 skyColor(vec3 d, float time){
 }
 `;
 
-// Analytic street lamps: the lamp lattice is regular, so ground shaders can light themselves.
+// Street-lamp colour, shared by everything the lamps light.
 export const GLSL_LAMPS = /* glsl */`
-${GLSL_LAYOUT}
 const vec3 LAMP_COLOR = vec3(1.0, 0.70, 0.40);
-float lampFall(vec3 P, vec3 L){
-  vec3 d = L - P; float r2 = dot(d, d);
-  float ndl = max(d.y, 0.0) * inversesqrt(r2);
-  return ndl * ndl / (1.0 + r2 * 0.030) * smoothstep(34.0, 12.0, sqrt(r2));
-}
-float lampSum(vec3 P){
-  float sum = 0.0;
-  float kz = floor(P.z / LAMP_PITCH + 0.5);
-  for (int i = 0; i < N_AV; i++) {
-    float dx = P.x - AVX[i];
-    if (abs(dx) > AVHW[i] + 24.0 || P.z < AVZ0[i] - 30.0 || P.z > AVZ1[i] + 30.0) continue;
-    for (int o = -1; o <= 1; o++) {
-      float k = kz + float(o);
-      float lz = k * LAMP_PITCH;
-      if (mod(k, 4.0) < 0.5 || lz < AVZ0[i] + 2.0 || lz > AVZ1[i] - 2.0) continue;
-      float ly = LAMP_H + terrainH(vec2(AVX[i], lz));
-      sum += lampFall(P, vec3(AVX[i] - AVHW[i] + 1.4, ly, lz));
-      sum += lampFall(P, vec3(AVX[i] + AVHW[i] - 1.4, ly, lz));
-    }
-  }
-  float kx = floor(P.x / LAMP_PITCH + 0.5);
-  for (int j = 0; j < N_ST; j++) {
-    float dz = P.z - STZ[j];
-    if (abs(dz) > STHW[j] + 24.0 || P.x < STX0[j] - 30.0 || P.x > STX1[j] + 30.0) continue;
-    for (int o = -1; o <= 1; o++) {
-      float k = kx + float(o);
-      float lx = k * LAMP_PITCH;
-      if (mod(k, 4.0) < 0.5 || lx < STX0[j] + 2.0 || lx > STX1[j] - 2.0) continue;
-      float ly = LAMP_H + terrainH(vec2(lx, STZ[j] + 20.0));
-      sum += lampFall(P, vec3(lx, ly, STZ[j] + STHW[j] - 1.4));
-      sum += lampFall(P, vec3(lx, ly, STZ[j] - STHW[j] + 1.4));
-    }
-  }
-  return sum;
-}
 `;

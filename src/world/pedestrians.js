@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { cityCells, CURB, Z_NORTH, LAKE_Z, HILL_Z, CAMPUS, heightAt } from '../config.js';
-import { rng } from './buildings.js';
+import { CURB, heightAt } from '../config.js';
+import { rng } from './rng.js';
 
 // People with umbrellas walking the sidewalks. They jump clear of the van; they are never hit.
 const COATS = [0x2a2d33, 0x2f3a52, 0x4a443c, 0x555b63, 0x6a4a36, 0x2f4a3e, 0x7a2c30, 0x3a5580, 0x8a8278, 0xa58a52, 0x9aa3ad];
@@ -33,30 +33,10 @@ function washed(mat, k = 1.0) {
   return mat;
 }
 
-export function createPedestrians(count = 260, custom = null) {
+// custom = { paths: [{ pts: [[x, z], ...], w: weight }], y: ground height (number or function) }
+export function createPedestrians(count, custom) {
   const r = rng(8088);
-  const paths = [];
-  const rectPath = (x0, x1, z0, z1) => closedPath([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]);
-  for (const c of custom ? [] : cityCells()) {
-    if (!['slu', 'sluW', 'downtown', 'outerE', 'outerS', 'market'].includes(c.kind)) continue;
-    const R = c.roads;
-    if (R.n && R.s && R.e && R.w && !c.cliff) {
-      for (const inset of [2.5, 3.5]) paths.push({ p: rectPath(c.x0 + inset, c.x1 - inset, c.z0 + inset, c.z1 - inset), w: 6 });
-      continue;
-    }
-    // partial blocks: stroll back and forth along whichever sides have a street
-    const x0 = Math.max(c.x0, -540) + 6, x1 = Math.min(c.x1, 110) - 6, z0 = c.z0 + 6, z1 = Math.min(c.z1, 806) - 6;
-    if (R.n && x1 - x0 > 20) paths.push({ p: closedPath([[x0, c.z0 + 3], [x1, c.z0 + 3]]), w: 2.5 });
-    if (R.s && x1 - x0 > 20) { const z = c.cliff ? HILL_Z + 2.3 : c.z1 - 3; paths.push({ p: closedPath([[x0, z], [x1, z]]), w: 2.5 }); }
-    if (R.w && z1 - z0 > 20) paths.push({ p: closedPath([[c.x0 + 3, z0], [c.x0 + 3, z1]]), w: 2.5 });
-    if (R.e && z1 - z0 > 20) paths.push({ p: closedPath([[c.x1 - 3, z0], [c.x1 - 3, z1]]), w: 2.5 });
-  }
-  // the park and the Seattle Center campus
-  paths.push({ p: rectPath(-3, 3, LAKE_Z + 12, Z_NORTH - 5), w: 7 });
-  paths.push({ p: closedPath([[-170, LAKE_Z + 7], [170, LAKE_Z + 7], [170, LAKE_Z + 10], [-170, LAKE_Z + 10]]), w: 8 });
-  paths.push({ p: rectPath(CAMPUS.x0 + 30, CAMPUS.x1 - 12, CAMPUS.z0 + 14, CAMPUS.z1 - 14), w: 12 });
-  paths.push({ p: rectPath(CAMPUS.x0 + 70, CAMPUS.x1 - 50, CAMPUS.z0 + 50, CAMPUS.z1 - 60), w: 8 });
-  if (custom) { paths.length = 0; for (const q of custom.paths) paths.push({ p: closedPath(q.pts), w: q.w }); }
+  const paths = custom.paths.map(q => ({ p: closedPath(q.pts), w: q.w }));
   const wsum = paths.reduce((a, p) => a + p.w, 0);
 
   const peds = [];
