@@ -31,13 +31,14 @@ function signPlane(tex, w, h, x, y, z, ry, k = 2.3) {
 }
 
 // ---------------------------------------------------------------- monorail
-export function createMonorail(obstacles) {
+export function createMonorail(obstacles, custom = null) {
   const group = new THREE.Group();
   const BEAM_Y = 9.2, X5 = -88, ZD = DENNY.z, R = 34;
   // centre line: north up 5th Ave, a sweeping left onto Denny Way, west to Seattle Center
   const pts = [new THREE.Vector2(X5, 606), new THREE.Vector2(X5, ZD + R)];
   for (let k = 1; k <= 10; k++) { const a = (k / 10) * Math.PI / 2; pts.push(new THREE.Vector2(X5 - R + Math.cos(a) * R, ZD + R - Math.sin(a) * R)); }
   pts.push(new THREE.Vector2(-548, ZD));
+  if (custom) { pts.length = 0; for (const p of custom.pts) pts.push(new THREE.Vector2(p[0], p[1])); }
   const cum = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
   const total = cum[cum.length - 1];
@@ -61,7 +62,7 @@ export function createMonorail(obstacles) {
   }
   // T pylons down the middle of the road, never inside a junction
   const P = { x: 0, z: 0, h: 0 };
-  const inJunction = (x, z) => AVENUES.some(a => STREETS.some(s => isNode(a, s) && Math.abs(x - a.x) < a.hw + 10 && Math.abs(z - s.z) < s.hw + 10));
+  const inJunction = custom ? custom.inJunction : (x, z) => AVENUES.some(a => STREETS.some(s => isNode(a, s) && Math.abs(x - a.x) < a.hw + 10 && Math.abs(z - s.z) < s.hw + 10));
   for (let s = 10; s < total - 6; s += 24) {
     at(s, P);
     if (inJunction(P.x, P.z)) continue;
@@ -70,14 +71,14 @@ export function createMonorail(obstacles) {
     obstacles.push({ x: P.x, z: P.z, r: 0.75 });
   }
   // stations: a canopy at each end
-  for (const [sx, sz, w, d] of [[X5, 598, 9, 26], [-545, ZD, 22, 9]]) {
+  for (const [sx, sz, w, d] of custom ? [] : [[X5, 598, 9, 26], [-545, ZD, 22, 9]]) {
     geos.push(box(w, 0.35, d, sx, BEAM_Y + 4.4, sz), box(w, 0.3, d, sx, BEAM_Y - 0.2, sz));
     for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) geos.push(box(0.3, 4.6, 0.3, sx + ox * (w / 2 - 0.4), BEAM_Y + 2.1, sz + oz * (d / 2 - 0.4)));
   }
   const concrete = new THREE.MeshStandardMaterial({ color: 0x5a5b5d, roughness: 0.7, emissive: 0x23201c, emissiveIntensity: 1.0 });
   const frame = new THREE.Mesh(merge(geos), concrete); frame.frustumCulled = false;
   group.add(frame);
-  const strips = [box(8.4, 0.08, 0.25, X5, BEAM_Y + 4.18, 598), box(0.25, 0.08, 8.4, -545, BEAM_Y + 4.18, ZD)];
+  const strips = custom ? [box(0.1, 0.1, 0.1, 0, -60, 0)] : [box(8.4, 0.08, 0.25, X5, BEAM_Y + 4.18, 598), box(0.25, 0.08, 8.4, -545, BEAM_Y + 4.18, ZD)];
   group.add(new THREE.Mesh(merge(strips), hdr(5, 4.2, 3)));
 
   // the train: four cars riding the north/east beam
@@ -247,7 +248,7 @@ export function createRetailCore(obstacles, lots) {
 // ---------------------------------------------------------------- Seattle Center: Space Needle, glass garden, fountain
 export const CAMPUS_LAMPS = { x0: -730, z0: 30, pitch: 44, nx: 5, nz: 6, h: 6 };
 
-export function createCenter(colliders, obstacles) {
+export function createCenter(colliders, obstacles, P = {}) {
   const group = new THREE.Group();
   const r = rng(1962);
   const fogC = new THREE.Color().fromArray(FOG_COLOR);
@@ -270,7 +271,7 @@ export function createCenter(colliders, obstacles) {
   };
 
   // ---- Space Needle
-  const NX = -640, NZ = 92, H = 184;
+  const [NX, NZ] = P.needle || [-640, 92], H = 184;
   const needle = new THREE.Group();
   const legGeos = [];
   for (let i = 0; i < 3; i++) {
@@ -306,17 +307,17 @@ export function createCenter(colliders, obstacles) {
   // ---- pedestrian lamps on a grid (the ground shader lights the plaza from the same grid)
   const C = CAMPUS_LAMPS;
   const lp = [], lc = [], ls = [], lph = [], poles = [];
-  for (let i = 0; i < C.nx; i++) for (let j = 0; j < C.nz; j++) {
+  for (let i = 0; i < (P.lamps === false ? 0 : C.nx); i++) for (let j = 0; j < C.nz; j++) {
     const x = C.x0 + i * C.pitch, z = C.z0 + j * C.pitch;
     if (Math.hypot(x - NX, z - NZ) < 14) continue;
     poles.push(new THREE.CylinderGeometry(0.07, 0.09, C.h, 8).translate(x, CURB + C.h / 2, z), new THREE.SphereGeometry(0.3, 10, 8).translate(x, CURB + C.h, z));
     lp.push(x, CURB + C.h, z); lc.push(1.0, 0.7, 0.4); ls.push(2.6); lph.push(i + j);
     obstacles.push({ x, z, r: 0.25 });
   }
-  group.add(new THREE.Mesh(merge(poles), darkMetal));
+  if (poles.length) group.add(new THREE.Mesh(merge(poles), darkMetal));
 
   // ---- glass garden: a ribbed glasshouse with a blaze of blown glass inside, and sculpture beds outside
-  const GX = -590, GZ = 190;
+  const [GX, GZ] = P.glass || [-590, 190];
   const ribs = [];
   for (let k = 0; k <= 16; k++) { const z = GZ - 16 + k * 2; ribs.push(new THREE.TorusGeometry(7.5, 0.09, 5, 20, Math.PI).rotateY(Math.PI / 2).translate(GX, CURB, z)); }
   for (const a of [0.35, 0.9, Math.PI / 2, Math.PI - 0.9, Math.PI - 0.35]) ribs.push(box(0.1, 0.1, 32, GX + Math.cos(a) * 7.5, CURB + Math.sin(a) * 7.5, GZ));
@@ -346,7 +347,7 @@ export function createCenter(colliders, obstacles) {
   for (const [key, list] of Object.entries(glassGeo)) if (list.length) group.add(new THREE.Mesh(merge(list), hdr(...GC[key])));
 
   // ---- International Fountain: a steel dome ringed by lit jets
-  const FX = -700, FZ = 50;
+  const [FX, FZ] = P.fountain || [-700, 50];
   group.add(new THREE.Mesh(merge([new THREE.SphereGeometry(5.5, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2).translate(FX, CURB, FZ), new THREE.TorusGeometry(15, 0.5, 6, 40).rotateX(Math.PI / 2).translate(FX, CURB + 0.25, FZ)]), new THREE.MeshStandardMaterial({ color: 0x8f9aa3, roughness: 0.22, metalness: 1 })));
   obstacles.push({ x: FX, z: FZ, r: 6 });
   const fp = [], fc = [], fs = [], fph = [];
@@ -358,9 +359,9 @@ export function createCenter(colliders, obstacles) {
   const A = { x0: -735, x1: -690, z0: 208, z1: 246 };
   fg.box(A.x0, A.x1, A.z0, A.z1, CURB, CURB + 17, { style: STYLE.BRICK, seed: 6.2, floorH: 5.4, bayW: 4.4, groundH: 6, lit: 0.85, a: 0, tint: [0.33, 0.30, 0.26] });
   const fm = createFacadeMaterial();
-  group.add(new THREE.Mesh(fg.build(), fm.material));
-  colliders.push(A);
-  group.add(signPlane(textTexture([['ARMORY', 150, 128]], '#ffb056', 1024, 256), 16, 4, A.x1 + 0.3, CURB + 10, (A.z0 + A.z1) / 2, Math.PI / 2));
+  if (P.armory !== false) group.add(new THREE.Mesh(fg.build(), fm.material));
+  if (P.armory !== false) colliders.push(A);
+  if (P.armory !== false) group.add(signPlane(textTexture([['ARMORY', 150, 128]], '#ffb056', 1024, 256), 16, 4, A.x1 + 0.3, CURB + 10, (A.z0 + A.z1) / 2, Math.PI / 2));
 
   const lamps = createGlowPoints([...lp, ...gp], [...lc, ...gc], [...ls, ...gs], [...lph, ...gph], { twinkle: 0.06 });
   const jets = createGlowPoints(fp, fc, fs, fph, { twinkle: 0.6 });

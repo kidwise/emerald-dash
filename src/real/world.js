@@ -5,6 +5,10 @@ import { createRain } from '../world/rain.js';
 import { createLake } from '../world/landmarks.js';
 import { rng } from '../world/buildings.js';
 import { setMapOverride } from '../config.js';
+import { createPikePlace, PIKE } from '../world/market.js';
+import { createCenter, createMonorail } from '../world/districts.js';
+import { makeCarSet, CAR_KINDS, CAR_COLORS } from '../world/cars.js';
+import { createPedestrians } from '../world/pedestrians.js';
 
 // A district built from real map data (OpenStreetMap, baked by tools/bake-map.mjs):
 // true street geometry at any angle, real building footprints and heights, the real shoreline.
@@ -32,6 +36,30 @@ export async function initRealWorld(app, mapName = 'slu') {
   const data = await (await fetch(`/assets/map/${mapName}.json`)).json();
   const B = data.bounds, r = rng(47618);
   const updaters = [], glow = [], obstacles = [], colliders = [];
+
+  // ---- hand-built landmarks take their real places; the map's own buildings make way for them
+  const centreOf = (b) => { let x = 0, z = 0; for (const q of b.p) { x += q[0]; z += q[1]; } return [x / b.p.length, z / b.p.length]; };
+  let pikeT = null;
+  const pikeRoad = data.roads.filter(q => q.n === 'Pike Place');
+  if (pikeRoad.length) {
+    const tips = pikeRoad.flatMap(q => [q.p[0], q.p[q.p.length - 1]]);
+    const se = tips.reduce((a, b) => (b[1] > a[1] ? b : a)), nw = tips.reduce((a, b) => (b[1] < a[1] ? b : a));
+    const th = Math.atan2(se[0] - nw[0], se[1] - nw[1]), c = Math.cos(th), sn = Math.sin(th), OX = -440, OZ = 704;
+    pikeT = {
+      th, origin: se,
+      toWorld: (lx, lz) => { const x = lx - OX, z = lz - OZ; return [se[0] + x * c + z * sn, se[1] - x * sn + z * c]; },
+      toLocal: (wx, wz) => { const x = wx - se[0], z = wz - se[1]; return [OX + x * c - z * sn, OZ + x * sn + z * c]; },
+    };
+  }
+  const needleB = data.buildings.find(b => b.n === 'Space Needle');
+  const needleAt = needleB ? centreOf(needleB) : null;
+  const glassAt = needleAt && [needleAt[0] - 62, needleAt[1] + 52], fountainAt = needleAt && [needleAt[0] - 203, needleAt[1] - 221];
+  const inSet = (x, z, m = 0) => { if (!pikeT) return false; const [lx, lz] = pikeT.toLocal(x, z); return lx > -498 - m && lx < -386 + m && lz > 438 - m && lz < 714 + m; };
+  data.buildings = data.buildings.filter((b) => {
+    const [x, z] = centreOf(b);
+    if (needleAt && (b === needleB || Math.hypot(x - glassAt[0], z - glassAt[1]) < 30)) return false;
+    return !inSet(x, z);
+  });
 
   // ================================================================ roads
   // resample every few metres so paint can fade in and out of junctions smoothly
@@ -154,6 +182,53 @@ export async function initRealWorld(app, mapName = 'slu') {
     if (H > 70) beacons.push([cx, H + 3, cz]);
     if (b.n && door) lots.push({ name: b.n, door, type: 'office', district: 'slu', x0: cx, x1: cx, z0: cz, z1: cz, h: H });
   }
+  // ================================================================ hero landmarks at their real addresses
+  const boxSegs = (b, tf) => { const c = [[b.x0, b.z0], [b.x1, b.z0], [b.x1, b.z1], [b.x0, b.z1]].map(q => (tf ? tf(q[0], q[1]) : q)); for (let i = 0; i < 4; i++) segs.push({ ax: c[i][0], az: c[i][1], bx: c[(i + 1) % 4][0], bz: c[(i + 1) % 4][1] }); };
+  const heroStops = [], heroSources = [];
+  let coffee = { x: 1e5, z: 1e5 }, inSlow = () => false;
+  if (pikeT) {
+    const tc = [], to = [];
+    const pike = createPikePlace(tc, to);
+    const pivot = new THREE.Group(); pivot.position.set(pikeT.origin[0], -PIKE.Y, pikeT.origin[1]); pivot.rotation.y = pikeT.th;
+    const inner = new THREE.Group(); inner.position.set(440, 0, -704); inner.add(pike.group); pivot.add(inner); scene.add(pivot);
+    glow.push(...pike.glow); updaters.push(() => pike.update(app.time));
+    // the blocks behind the stalls and shops, rebuilt to fit the hand-made street
+    const sg = new FacadeGeo(), MY = PIKE.Y - 0.16;
+    const setBox = (x0, x1, z0, z1, h, o) => { sg.box(x0, x1, z0, z1, MY, MY + h, o); tc.push({ x0, x1, z0, z1 }); };
+    const brick = (seed, tint, lit = 0.5) => ({ style: STYLE.BRICK, seed, floorH: 3.9, bayW: 3.3, groundH: 5.2, lit, a: 1, tint });
+    setBox(-423.4, -388, 627.6, 692.4, 19, brick(3.1, BRICKS[0]));
+    setBox(-427.4, -388, 539.6, 604.4, 15, brick(5.2, BRICKS[2]));
+    setBox(-423.4, -388, 451.6, 516.4, 23, { style: STYLE.CURTAIN, seed: 7.7, floorH: 4.1, bayW: 1.5, groundH: 5.6, lit: 0.5, a: 1, b: 0.4, tint: FRAMES[0], tint2: ACCENTS[4] });
+    setBox(-492, -459.1, 626, 694, 9.4, brick(2.2, [0.20, 0.27, 0.22], 0.9));
+    setBox(-492, -452.6, 538, 606, 13, brick(9.4, BRICKS[1]));
+    setBox(-492, -452.6, 450, 518, 13, brick(6.6, BRICKS[3]));
+    const sfm = createFacadeMaterial(); inner.add(new THREE.Mesh(sg.build(), sfm.material)); updaters.push(() => { sfm.uniforms.uTime.value = app.time; });
+    // the brick street itself
+    const ld = new THREE.TextureLoader(), bt = (f, srgb) => { const t = ld.load(f); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(16 / 2.6, 276 / 2.6); t.anisotropy = 8; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
+    const bmap = bt('/assets/tex/brick_pavement_02_diff.jpg', true);
+    const street = new THREE.Mesh(new THREE.PlaneGeometry(16, 276).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: bmap, normalMap: bt('/assets/tex/brick_pavement_02_nor.jpg', false), color: 0x8f8f8f, roughness: 0.3, emissiveMap: bmap, emissive: 0xffc890, emissiveIntensity: 0.3 }));
+    street.position.set(-440, PIKE.Y + 0.1, 574); street.layers.set(1); inner.add(street);
+    for (const b of tc) boxSegs(b, pikeT.toWorld);
+    for (const o of to) { const [x, z] = pikeT.toWorld(o.x, o.z); obstacles.push({ x, z, r: o.r }); }
+    const mv = (q) => { const [x, z] = pikeT.toWorld(q.x, q.z); const out = { ...q, x, z }; if (q.look) { const [lx, lz] = pikeT.toWorld(q.look[0], q.look[2]); out.look = [lx, q.look[1] - PIKE.Y, lz]; } if (q.from) { const [fx, fz] = pikeT.toWorld(q.from[0], q.from[2]); out.from = [fx, q.from[1] - PIKE.Y, fz]; } return out; };
+    heroStops.push(...pike.stops.map(mv)); heroSources.push(...pike.sources.map(mv)); coffee = mv(pike.coffee);
+    inSlow = (x, z) => { const [lx, lz] = pikeT.toLocal(x, z); return lx > PIKE.slow.x0 && lx < PIKE.slow.x1 && lz > PIKE.slow.z0 && lz < PIKE.slow.z1; };
+  }
+  if (needleAt) {
+    const tc = [];
+    const center = createCenter(tc, obstacles, { needle: needleAt, glass: glassAt, fountain: fountainAt, lamps: false, armory: false });
+    scene.add(center.group); glow.push(...center.glow); updaters.push(() => center.update(app.time, app.camera.position));
+    for (const b of tc) boxSegs(b);
+    heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], 84, needleAt[1]], dist: 150, lift: -78 },
+      { name: 'Glass Garden', sub: 'Blown glass, lit from within', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], 3.5, glassAt[1]], dist: 26, lift: 0.5 });
+  }
+  const mono = (data.monorail || []).slice().sort((a, b) => b.length - a.length)[0];
+  if (mono) {
+    const js = [...junctionR].map(([k, R]) => [...k.split(',').map(Number), R]);
+    const rail = createMonorail(obstacles, { pts: mono, inJunction: (x, z) => js.some(q => Math.hypot(q[0] - x, q[1] - z) < q[2] + 9) });
+    scene.add(rail.group); updaters.push((dt) => rail.update(dt));
+  }
+
   const fm = createFacadeMaterial();
   const bmesh = new THREE.Mesh(g.build(), fm.material); bmesh.frustumCulled = false;
   scene.add(bmesh);
@@ -181,10 +256,10 @@ export async function initRealWorld(app, mapName = 'slu') {
       if (dj < 9) continue;
       const isLamp = Math.round(d / 14) % 2 === 0;
       const off = rd.hw + (isLamp ? 0.9 : 1.9), x = px + nx * side * off, z = pz + nz * side * off;
-      if (x < B.x0 || x > B.x1 || z < B.z0 || z > B.z1 || inWater(x, z) || inBuilding(x, z)) continue;
+      if (x < B.x0 || x > B.x1 || z < B.z0 || z > B.z1 || inWater(x, z) || inBuilding(x, z) || inSet(x, z, -20)) continue;
       const other = nearRoad(x, z); if (other && other.rd !== rd && other.d < other.rd.hw + 0.5) continue;
       if (isLamp) { sites.push({ x, z, y: -0.16, dirX: -nx * side, dirZ: -nz * side }); side = -side; }
-      else if (r() < 0.55) treeSpots.push([x, z, 0]);
+      else if (r() < 0.32) treeSpots.push([x, z, 0]);
     }
   });
   const lamps = buildLamps(sites, obstacles); scene.add(lamps.group); glow.push(lamps.halo);
@@ -248,7 +323,85 @@ export async function initRealWorld(app, mapName = 'slu') {
   };
   const nearestRoad = (x, z) => { const a = nearRoad(x, z, 4); if (!a) return { x: 0, z: 0, h: -Math.PI / 2 }; const h = Math.atan2(a.s.bz - a.s.az, a.s.bx - a.s.ax); return { x: a.x - Math.sin(h) * 1.8, z: a.z + Math.cos(h) * 1.8, h }; };
   const inBounds = (x, z) => x > B.x0 + 4 && x < B.x1 - 4 && z > B.z0 + 4 && z < B.z1 - 4 && !inWater(x, z);
-  setMapOverride({ inBounds, route });
+  const districtOf = (x, z) => (pikeT && inSet(x, z, 40) ? 'pike' : needleAt && Math.hypot(x - needleAt[0], z - needleAt[1]) < 420 ? 'center' : z > 330 ? 'downtown' : z > 60 && x < -260 ? 'belltown' : 'slu');
+  setMapOverride({ inBounds, route, district: districtOf });
+
+  const start0 = [-17, -70];
+  // ================================================================ traffic: a bubble of cars around the van
+  const incident = new Map();
+  roads.forEach((rd) => rd.nodes.forEach((n) => { if (!incident.has(n.k)) incident.set(n.k, []); incident.get(n.k).push({ rd, i: n.i }); }));
+  const drivable = roads.filter(rd => !rd.kind.endsWith('_link') && rd.kind !== 'pedestrian' && rd.len > 45 && !rd.bridge);
+  const cars = [], NCAR = 34, carGroup = new THREE.Group();
+  const place = (c, fx, fz, first) => {
+    for (let n = 0; n < 40; n++) {
+      const rd = drivable[Math.floor(Math.random() * drivable.length)], s = rd.len * (0.15 + Math.random() * 0.7);
+      let i = 1; while (i < rd.pts.length - 1 && rd.v[i] < s) i++;
+      const d = Math.hypot(rd.pts[i][0] - fx, rd.pts[i][1] - fz);
+      if ((d > (first ? 40 : 170) && d < 420) || n === 39) { c.rd = rd; c.s = s; c.i = i; c.dir = rd.oneway ? 1 : (Math.random() < 0.5 ? 1 : -1); c.v = 6; c.snap = true; return; }
+    }
+  };
+  for (let n = 0; n < NCAR; n++) { const c = { kind: n % CAR_KINDS, color: CAR_COLORS[Math.floor(r() * CAR_COLORS.length)], cruise: 8 + r() * 3.5, x: 0, z: 0, h: 0, y: 0, v: 6, near: null, collider: { x0: 0, x1: 0, z0: 0, z1: 0, low: true, moving: true } }; place(c, start0[0], start0[1], true); cars.push(c); colliders.push(c.collider); }
+  const sets = Array.from({ length: CAR_KINDS }, (_, k) => { const list = cars.filter(c => c.kind === k), set = makeCarSet(k, list.length, true, true), C0 = new THREE.Color(); list.forEach((c, n) => { set.body.setColorAt(n, C0.setHex(c.color)); set.tail.setColorAt(n, C0.setRGB(3, 0.08, 0.05)); }); carGroup.add(...set.all); return { list, set }; });
+  scene.add(carGroup);
+  const CM = new THREE.Matrix4(), CQ = new THREE.Quaternion(), CV = new THREE.Vector3(), CS = new THREE.Vector3(1, 1, 1), CUP = new THREE.Vector3(0, 1, 0), tevents = [];
+  const trafficUpdate = (dt, van) => {
+    tevents.length = 0;
+    for (const c of cars) {
+      const rd = c.rd;
+      if (Math.hypot(c.x - van.pos.x, c.z - van.pos.z) > 520 && !c.snap) place(c, van.pos.x, van.pos.z, false);
+      // the junction ahead on this road
+      let ahead = null; for (const n of c.rd.nodes) { const d = (c.rd.v[n.i] - c.s) * c.dir; if (d > 0.01 && (!ahead || d < ahead.d)) ahead = { n, d }; }
+      let target = c.cruise; if (ahead && ahead.d < 16) target = Math.min(target, 3.5 + ahead.d * 0.45);
+      const fx = Math.cos(c.h), fz = Math.sin(c.h);
+      let gap = 1e9;
+      for (const o of cars) { if (o === c) continue; const rx = o.x - c.x, rz = o.z - c.z, a = rx * fx + rz * fz; if (a > 0 && a < 30 && Math.abs(-rx * fz + rz * fx) < 1.9) gap = Math.min(gap, a - 5.2); }
+      { const rx = van.pos.x - c.x, rz = van.pos.z - c.z, a = rx * fx + rz * fz; if (a > 0 && a < 30 && Math.abs(-rx * fz + rz * fx) < 2.3) gap = Math.min(gap, a - 5.6); }
+      if (gap < 30) target = Math.min(target, Math.max(0, gap) * 0.9);
+      if (c.stun > 0) { c.stun -= dt; target = 0; }
+      c.braking = target < c.v - 0.5 || (c.v < 0.4 && target < 0.4);
+      c.v += THREE.MathUtils.clamp(target - c.v, -9 * dt, 3.2 * dt); if (c.v < 0.05 && target <= 0) c.v = 0;
+      const move = c.v * dt;
+      if (ahead && move >= ahead.d) {
+        // at the junction: carry on, or turn onto one of the roads that meet here
+        const opts = [];
+        for (const q of incident.get(ahead.n.k) || []) {
+          if (q.i < q.rd.pts.length - 1 && !(q.rd === c.rd && c.dir < 0)) opts.push([q, 1, q.rd === c.rd ? 4 : 1.5]);
+          if (q.i > 0 && !q.rd.oneway && !(q.rd === c.rd && c.dir > 0)) opts.push([q, -1, q.rd === c.rd ? 4 : 1.5]);
+        }
+        const ok = opts.filter(o => o[0].rd.kind !== 'pedestrian' && !o[0].rd.kind.endsWith('_link'));
+        if (!ok.length) { if (!c.rd.oneway) c.dir = -c.dir; else place(c, van.pos.x, van.pos.z, false); }
+        else { let pk = Math.random() * ok.reduce((a, o) => a + o[2], 0), o = ok[0]; for (const q of ok) { pk -= q[2]; if (pk <= 0) { o = q; break; } } c.rd = o[0].rd; c.dir = o[1]; c.s = o[0].rd.v[o[0].i] + o[1] * 0.05; c.i = Math.max(1, o[0].i); }
+      } else c.s += c.dir * move;
+      if (c.s <= 0 || c.s >= c.rd.len) { if (!c.rd.oneway) { c.dir = -c.dir; c.s = Math.max(0.1, Math.min(c.rd.len - 0.1, c.s)); } else place(c, van.pos.x, van.pos.z, false); }
+      const R2 = c.rd; let i = Math.max(1, Math.min(R2.pts.length - 1, c.i || 1)); while (i < R2.pts.length - 1 && R2.v[i] < c.s) i++; while (i > 1 && R2.v[i - 1] > c.s) i--; c.i = i;
+      const a = R2.pts[i - 1], b = R2.pts[i], t = (c.s - R2.v[i - 1]) / (R2.v[i] - R2.v[i - 1] || 1), dx = (b[0] - a[0]) * c.dir, dz = (b[1] - a[1]) * c.dir, l = Math.hypot(dx, dz) || 1;
+      const off = R2.oneway ? 0 : Math.min(R2.hw * 0.45, 3.2), wantH = Math.atan2(dz, dx);
+      const tx = a[0] + (b[0] - a[0]) * t - (dz / l) * off, tz = a[1] + (b[1] - a[1]) * t + (dx / l) * off;
+      if (c.snap) { c.x = tx; c.z = tz; c.h = wantH; c.snap = false; }
+      else { const k = Math.min(1, dt * 6); c.x += (tx - c.x) * k; c.z += (tz - c.z) * k; let dh = wantH - c.h; dh = ((dh + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; c.h += dh * Math.min(1, dt * 7); }
+      const ex = Math.abs(Math.cos(c.h)) * 2.35 + Math.abs(Math.sin(c.h)) * 0.98, ez = Math.abs(Math.sin(c.h)) * 2.35 + Math.abs(Math.cos(c.h)) * 0.98, cb = c.collider;
+      cb.x0 = c.x - ex; cb.x1 = c.x + ex; cb.z0 = c.z - ez; cb.z1 = c.z + ez;
+      const dist = Math.hypot(van.pos.x - c.x, van.pos.z - c.z), rel = Math.hypot(van.vel.x - fx * c.v, van.vel.y - fz * c.v);
+      if (dist < 4.4 && rel > 8 && van.speed > 9) { if (!c.near) c.near = { min: dist, hit: false }; else c.near.min = Math.min(c.near.min, dist); }
+      if (c.near && dist > 7.5) { if (!c.near.hit && van.impact <= 0.01) tevents.push({ type: 'nearmiss', car: c, min: c.near.min }); c.near = null; }
+      if (c.near && van.impact > 0.05) c.near.hit = true;
+    }
+    const C1 = new THREE.Color();
+    for (const st of sets) { st.list.forEach((c, n) => { CQ.setFromAxisAngle(CUP, -c.h); CM.compose(CV.set(c.x, 0.03, c.z), CQ, CS); st.set.setMatrixAt(n, CM); st.set.tail.setColorAt(n, c.braking ? C1.setRGB(14, 0.35, 0.2) : C1.setRGB(3.2, 0.08, 0.05)); }); st.set.commit(); if (st.set.tail.instanceColor) st.set.tail.instanceColor.needsUpdate = true; }
+    return tevents;
+  };
+  const bump = (x, z) => { let best = null, bd = 5.5; for (const c of cars) { const d = Math.hypot(c.x - x, c.z - z); if (d < bd) { bd = d; best = c; } } if (best) { best.stun = 1.6; best.v = 0; if (best.near) best.near.hit = true; } return best; };
+
+  // ================================================================ pedestrians along the real kerbs
+  const pedPaths = [];
+  for (const rd of data.roads) {
+    if (rd.k.endsWith('_link') || rd.p.length < 2 || rd.br) continue;
+    const side = (sg2) => rd.p.map((q, i) => { const a = rd.p[Math.max(0, i - 1)], b = rd.p[Math.min(rd.p.length - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [q[0] - (b[1] - a[1]) / l * sg2 * (rd.w / 2 + 2.3), q[1] + (b[0] - a[0]) / l * sg2 * (rd.w / 2 + 2.3)]; });
+    const len = rd.p.reduce((a, q, i) => a + (i ? Math.hypot(q[0] - rd.p[i - 1][0], q[1] - rd.p[i - 1][1]) : 0), 0);
+    if (len < 50) continue;
+    pedPaths.push({ pts: [...side(1), ...side(-1).reverse()], w: len });
+  }
+  const peds = createPedestrians(520, { paths: pedPaths, y: 0 }); scene.add(peds.group);
 
   // ================================================================ what the game needs to know
   const startRoad = roads.filter(rd => rd.name === 'Westlake Avenue North').map(rd => rd.pts[Math.floor(rd.pts.length / 2)]).sort((p, q) => Math.hypot(p[0] + 17, p[1] + 70) - Math.hypot(q[0] + 17, q[1] + 70))[0] || [0, 0];
@@ -260,7 +413,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   const pois = [[/Naval Reserve Armory/, 'MOHAI', 'Museum of History & Industry, in the old Naval Reserve Armory'], [/Center for Wooden Boats/, 'Center for Wooden Boats', 'Historic boats on Lake Union'], [/Kenmore Air/, 'Kenmore Air', 'Seaplanes off the lake'], [/^REI$/, 'REI', 'The flagship store'], [/Amazon Fiona/, 'Amazon Fiona', 'One of the South Lake Union campus buildings'], [/Cascade People/, "Cascade People's Center", 'Cascade Playground']]
     .map(([re, name, sub]) => { const b = named(re); if (!b) return null; const [x, z] = centre(b); return { name, sub, x, z, r: 55 }; }).filter(Boolean);
   const wf = nearRoad(-25, 45, 3);
-  const sources = wf ? [{ name: 'Whole Foods Market', x: wf.x, z: wf.z, cargo: 'GROCERIES', rule: { fragile: 8.5, gentle: true } }] : [];
+  const sources = [...(wf ? [{ name: 'Whole Foods Market', x: wf.x, z: wf.z, cargo: 'GROCERIES', rule: { fragile: 8.5, gentle: true } }] : []), ...heroSources];
   const coffeeSpots = []; for (let n = 0; n < 60 && coffeeSpots.length < 26; n++) { const rd = roads[Math.floor(r() * roads.length)]; if (rd.len < 60 || rd.kind.endsWith('_link')) continue; const p = rd.pts[Math.floor(rd.pts.length * (0.3 + r() * 0.4))]; if (p[0] > B.x0 + 30 && p[0] < B.x1 - 30 && p[1] > B.z0 + 30 && p[1] < B.z1 - 30) coffeeSpots.push(p); }
 
   const drawMap = (c, X, Z, k) => {
@@ -294,9 +447,9 @@ export async function initRealWorld(app, mapName = 'slu') {
   app.world = {
     real: true, colliders, obstacles, segHash, segCell: SC, rain, updateLampPool,
     buildings: { lots }, streetcar: { state: { x: 1e5, z: 1e5, dir: 1, v: 0 } },
-    traffic: { cars: [], update: () => [], bump: () => null }, peds: { update: () => [] },
-    pike: { sources: [], stops: [], coffee: far },
-    start, pois, sources, stops: [], coffeeSpots, streetName, nearestRoad, drawMap, credit: data.credit,
+    traffic: { cars, update: trafficUpdate, bump }, peds,
+    pike: { sources: [], stops: [], coffee }, inSlow,
+    start, pois, sources, stops: heroStops, coffeeSpots, streetName, nearestRoad, drawMap, credit: data.credit,
     stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length },
   };
   app.updateWorld = (dt) => { for (const u of updaters) u(dt); };

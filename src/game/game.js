@@ -282,7 +282,7 @@ export function initGame(app) {
   const STOPS = world.stops || [...BASE_STOPS, ...world.pike.stops];
   const START = world.start || GRID_START;
   const PLACES = POIS.length + STOPS.length;
-  const inSlow = (x, z) => !REAL && x > PIKE.slow.x0 && x < PIKE.slow.x1 && z > PIKE.slow.z0 && z < PIKE.slow.z1;
+  const inSlow = (x, z) => world.inSlow ? world.inSlow(x, z) : x > PIKE.slow.x0 && x < PIKE.slow.x1 && z > PIKE.slow.z0 && z < PIKE.slow.z1;
   const campusLots = (REAL ? [] : CAMPUS_STOPS).map(c => ({ name: c.name, door: { x: c.x, z: c.z }, district: 'center', x0: c.x, x1: c.x, z0: c.z, z1: c.z }));
   const allLots = () => [...world.buildings.lots.filter(l => l.name && l.door && l.type !== 'grocery' && l.district !== 'none'), ...campusLots];
   const busy = (l) => targets.some(t => !t.done && (t.name === l.name || t.dest === l));
@@ -310,7 +310,7 @@ export function initGame(app) {
     else if (kind === 'pickup') {
       const src = SOURCES.reduce((b, c) => Math.hypot(c.x - vx, c.z - vz) < Math.hypot(b.x - vx, b.z - vz) ? c : b);
       const dest = pickLot(src.x, src.z, 200, 640); if (!dest) return null;
-      t = makeTarget('pickup', src.x, src.z, heightAt(src.x, src.z), src.name); t.dest = dest; t.cargo = src.cargo; t.rule = src.rule || {};
+      t = makeTarget('pickup', src.x, src.z, heightAt(src.x, src.z), src.name); t.dest = dest; t.cargo = src.cargo; t.rule = src.rule || {}; t.from = src.from;
       t.far = Math.hypot(dest.door.x - src.x, dest.door.z - src.z);
       hud.toast('Cross-town run', `Collect ${src.cargo.toLowerCase()} at ${src.name}`, 'place');
     } else {
@@ -381,7 +381,7 @@ export function initGame(app) {
     if (e.code === 'KeyE' && S.mode !== 'play') startShift(true);
     if (e.code === 'Escape' && S.mode === 'play') endShift(false);
     if (e.code === 'Tab' && S.mode === 'play') { e.preventDefault(); S.navSkip = (S.navSkip || 0) + 1; }
-    if (e.code === 'Space' && S.mode === 'play') { if (S.post) S.post = null; else if (S.toss) catchToss(); else throwParcel(); }
+    if (e.code === 'Space' && S.mode === 'play') { if (S.post) { S.post = null; hud.postcard(null); } else if (S.toss) catchToss(); else throwParcel(); }
     if (e.code === 'KeyR' && S.mode === 'play') { const a = nearestRoadPoint(van.pos.x, van.pos.z); van.reset(a.x, a.z, a.h); }
     if (e.code === 'KeyM') hud.toast(audio.toggleMute() ? 'Sound off' : 'Sound on');
     if (e.code === 'KeyT') setWeather(!S.clear);
@@ -589,7 +589,7 @@ export function initGame(app) {
     const slow = playing && inSlow(van.pos.x, van.pos.z);
     van.limit = slow ? 6.2 : 0;
     S.slowK += ((slow ? 1 : 0) - S.slowK) * Math.min(1, dt * 2.2);
-    if (slow && !S.wasSlow) hud.banner('Pike Place Market');
+    if (slow && !S.wasSlow && !REAL) hud.banner('Pike Place Market');
     S.wasSlow = slow;
     if (S.post) { input.throttle = 0; input.steer = 0; }
     van.update(dt, input);
@@ -704,7 +704,7 @@ export function initGame(app) {
         if (t.kind === 'pickup' && !S.toss && Math.hypot(van.pos.x - t.x, van.pos.z - t.z) < 4.6) {
           if (t.rule.toss) {
             // the fishmonger throws it: stop, then catch
-            if (van.speed < 2.5 && (t.tossCd || 0) <= 0) { S.toss = { t: 0, dur: 1.15, job: t, from: new THREE.Vector3(PIKE.arcade.x1 + 1.9, PIKE.Y + 1.6, t.z) }; fishMesh.visible = true; hud.prompt('CATCH IT — SPACE'); audio.play('throw'); }
+            if (van.speed < 2.5 && (t.tossCd || 0) <= 0) { S.toss = { t: 0, dur: 1.15, job: t, from: new THREE.Vector3(...(t.from || [t.x - 8, t.y + 1.6, t.z])) }; fishMesh.visible = true; hud.prompt('CATCH IT — SPACE'); audio.play('throw'); }
             else if (van.speed >= 2.5 && !t.hinted) { t.hinted = true; hud.toast('Stop by the fish stall', 'They throw, you catch'); }
           } else loadCargo(t);
         }

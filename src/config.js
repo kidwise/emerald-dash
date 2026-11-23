@@ -95,7 +95,7 @@ export function inBounds(x, z) {
 }
 
 export function district(x, z) {
-  if (OVERRIDE) return 'slu';
+  if (OVERRIDE) return OVERRIDE.district ? OVERRIDE.district(x, z) : 'slu';
   if (x < -104 && z < Z_DENNY + 4) return z > -20 ? 'center' : 'none';
   if (z > Z_DENNY - 4) return 'downtown';
   return 'slu';
@@ -229,4 +229,4 @@ export function routeBetween(ax, az, bx, bz) {
   out.push([B.x, B.z], [bx, bz]);
   return out;
 }
-export const DISTRICT_LABEL = { slu: 'South Lake Union', downtown: 'Downtown', center: 'Seattle Center', none: '' };
+export const DISTRICT_LABEL = { slu: 'South Lake Union', downtown: 'Downtown', center: 'Seattle Center', belltown: 'Belltown', pike: 'Pike Place Market', none: '' };

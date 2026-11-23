@@ -10,7 +10,7 @@ const raw = JSON.parse(await readFile(`tools/mapdata/${name}-raw.json`, 'utf8'))
 const LAT0 = 47.61853, LON0 = -122.33825;
 const KX = Math.cos(LAT0 * Math.PI / 180) * 111320, KZ = 110574;
 const P = (g) => [+((g.lon - LON0) * KX).toFixed(2), +(-(g.lat - LAT0) * KZ).toFixed(2)];
-const BOUNDS = { x0: -520, x1: 640, z0: -1260, z1: 270 };
+const BOUNDS = name === 'city' ? { x0: -1440, x1: 650, z0: -1265, z1: 1325 } : { x0: -520, x1: 640, z0: -1260, z1: 270 };
 const inB = ([x, z], m = 0) => x > BOUNDS.x0 - m && x < BOUNDS.x1 + m && z > BOUNDS.z0 - m && z < BOUNDS.z1 + m;
 
 // Douglas-Peucker
@@ -37,7 +37,7 @@ function simplifyRing(pts, tol) {
 const area = (r) => { let a = 0; for (let i = 0; i < r.length; i++) { const [x1, z1] = r[i], [x2, z2] = r[(i + 1) % r.length]; a += x1 * z2 - x2 * z1; } return a / 2; };
 
 const WIDTH = { trunk: 15, primary: 14.5, secondary: 12.5, tertiary: 11, residential: 9.5, unclassified: 9.5, living_street: 7.5, pedestrian: 5, primary_link: 8, secondary_link: 7.5, tertiary_link: 7, trunk_link: 8 };
-const roads = [], buildings = [], water = [], parks = [], tram = [];
+const roads = [], buildings = [], water = [], parks = [], tram = [], monorail = [], coast = [];
 const nodeUse = new Map();
 
 for (const e of raw.elements) {
@@ -77,6 +77,32 @@ for (const e of raw.elements) {
     }
   } else if (t.leisure === 'park' && e.geometry) parks.push({ n: t.name || '', p: simplifyRing(e.geometry.map(P), 1) });
   else if (t.railway === 'tram' && e.geometry) tram.push(simplify(e.geometry.map(P), 0.5));
+  else if (t.railway === 'monorail' && e.geometry) monorail.push(simplify(e.geometry.map(P), 0.5));
+  else if (t.natural === 'coastline' && e.geometry) coast.push(e.geometry.map(P));
+}
+
+// salt water: stitch the coastline into one line and close it far out to the west
+if (coast.length) {
+  const eq = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.6;
+  const chains = [];
+  while (coast.length) {
+    let c = coast.pop();
+    for (let grew = true; grew;) {
+      grew = false;
+      for (let i = 0; i < coast.length; i++) {
+        const q = coast[i];
+        if (eq(q[0], c[c.length - 1])) c = c.concat(q.slice(1)); else if (eq(q[q.length - 1], c[0])) c = q.concat(c.slice(1));
+        else if (eq(q[q.length - 1], c[c.length - 1])) c = c.concat(q.slice(0, -1).reverse()); else if (eq(q[0], c[0])) c = q.slice(1).reverse().concat(c);
+        else continue;
+        coast.splice(i, 1); grew = true; break;
+      }
+    }
+    chains.push(c);
+  }
+  chains.sort((a, b) => b.length - a.length);
+  const main = simplify(chains[0], 1.5), far = BOUNDS.x0 - 900;
+  water.push([...main, [far, main[main.length - 1][1]], [far, main[0][1]]]);
+  console.log('coast chains:', chains.map(c => c.length).join(' '), '| bay ring', main.length + 2, 'from', main[0], 'to', main[main.length - 1]);
 }
 
 // junctions: nodes shared by two or more roads, or where a road ends on another
@@ -84,7 +110,7 @@ for (const r of roads) {
   r.j = r.ids.map((id, i) => (nodeUse.get(id) > 1 ? 1 : 0));
   delete r.ids;
 }
-const out = { name, origin: { lat: LAT0, lon: LON0 }, bounds: BOUNDS, roads, buildings, water, parks, tram, credit: 'Map data © OpenStreetMap contributors (ODbL)' };
+const out = { name, origin: { lat: LAT0, lon: LON0 }, bounds: BOUNDS, roads, buildings, water, parks, tram, monorail, credit: 'Map data © OpenStreetMap contributors (ODbL)' };
 await writeFile(`public/assets/map/${name}.json`, JSON.stringify(out));
 const kb = Math.round(JSON.stringify(out).length / 1024);
 console.log(`${name}: ${roads.length} roads, ${buildings.length} buildings (${buildings.filter(b => b.n).length} named, ${buildings.filter(b => b.h).length} with height), ${water.length} water rings, ${parks.length} parks, ${tram.length} tram ways, ${kb} kB`);

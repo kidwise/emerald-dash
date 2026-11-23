@@ -33,11 +33,11 @@ function washed(mat, k = 1.0) {
   return mat;
 }
 
-export function createPedestrians(count = 260) {
+export function createPedestrians(count = 260, custom = null) {
   const r = rng(8088);
   const paths = [];
   const rectPath = (x0, x1, z0, z1) => closedPath([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]);
-  for (const c of cityCells()) {
+  for (const c of custom ? [] : cityCells()) {
     if (!['slu', 'sluW', 'downtown', 'outerE', 'outerS', 'market'].includes(c.kind)) continue;
     const R = c.roads;
     if (R.n && R.s && R.e && R.w && !c.cliff) {
@@ -56,6 +56,7 @@ export function createPedestrians(count = 260) {
   paths.push({ p: closedPath([[-170, LAKE_Z + 7], [170, LAKE_Z + 7], [170, LAKE_Z + 10], [-170, LAKE_Z + 10]]), w: 8 });
   paths.push({ p: rectPath(CAMPUS.x0 + 30, CAMPUS.x1 - 12, CAMPUS.z0 + 14, CAMPUS.z1 - 14), w: 12 });
   paths.push({ p: rectPath(CAMPUS.x0 + 70, CAMPUS.x1 - 50, CAMPUS.z0 + 50, CAMPUS.z1 - 60), w: 8 });
+  if (custom) { paths.length = 0; for (const q of custom.paths) paths.push({ p: closedPath(q.pts), w: q.w }); }
   const wsum = paths.reduce((a, p) => a + p.w, 0);
 
   const peds = [];
@@ -139,7 +140,7 @@ export function createPedestrians(count = 260) {
       const want = p.dir > 0 ? P.h : P.h + Math.PI;
       let dh = want - p.h; dh = ((dh + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       p.h += dh * Math.min(1, dt * 5);
-      let y = heightAt(x, z) + CURB;
+      let y = custom ? custom.y : heightAt(x, z) + CURB;
       if (p.hop > 0) { p.hop -= dt; y += Math.sin(Math.max(0, p.hop) / 0.55 * Math.PI) * 0.38; }
       const stride = fleeing ? 0 : Math.sin(time * p.speed * 5.2 + p.phase);
       y += Math.abs(stride) * 0.025;

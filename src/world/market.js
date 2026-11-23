@@ -337,7 +337,7 @@ export function createPikePlace(colliders, obstacles) {
     { name: 'Le Panier', sub: 'A very French bakery', x: roadE, z: 491.5, look: [SX + 1.4, Y + 1.5, 491.5], dist: 8 },
   ];
   const sources = [
-    { name: 'Pike Place Fish', x: roadW, z: bayZ(1), cargo: 'FRESH FISH', rule: { toss: true } },
+    { name: 'Pike Place Fish', x: roadW, z: bayZ(1), cargo: 'FRESH FISH', rule: { toss: true }, from: [A.x1 + 1.9, Y + 1.6, bayZ(1)] },
     { name: 'The Flower Stalls', x: roadW, z: bayZ(5), cargo: 'FLOWERS', rule: { fragile: 6.0, gentle: true } },
     { name: 'Beecher’s Handmade Cheese', x: roadE, z: 633.5, cargo: 'CHEESE WHEELS', rule: { heavy: true, gentle: true } },
     { name: 'Ellenos Real Greek Yogurt', x: roadE, z: 687.5, cargo: 'GREEK YOGURT', rule: { chilled: true } },

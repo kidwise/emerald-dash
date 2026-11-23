@@ -49,7 +49,7 @@ const app = { renderer, scene, camera, sky, ground, reflection, post, params, ti
 app.rebakeEnvironment = () => { const old = scene.environment; scene.environment = bakeEnvironment(renderer, sky); scene.add(sky.mesh); if (old) old.dispose(); };
 window.__app = app;
 
-if (REAL_MAP) { const { initRealWorld } = await import('./real/world.js'); await initRealWorld(app, 'slu'); }
+if (REAL_MAP) { const { initRealWorld } = await import('./real/world.js'); await initRealWorld(app, params.get('area') || 'city'); }
 else { const { initWorld } = await import('./world/index.js'); await initWorld(app); }
 const { initGame } = await import('./game/game.js');
 initGame(app);

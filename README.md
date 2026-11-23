@@ -10,6 +10,19 @@ doorsteps without stopping, across three connected districts:
 
 The map is one continuous world; a shift just picks which district its jobs are in.
 
+## Two maps
+
+- **The hand-built city** (default): a compressed, regular street grid with every game feature: hills, streetcar,
+  monorail, all landmarks.
+- **The real map** (`?map=real`, linked from the title screen): true-scale streets, building footprints and shoreline
+  baked from OpenStreetMap, from Lake Union to Pike Place and Seattle Center. Pike Place Market and the Space Needle
+  are placed at their real addresses, with traffic and pedestrians. Still a preview: the ground is flat, and the
+  streetcar, signals and most other landmarks are not there yet.
+
+Play is one continuous city in both: jobs are dispatched near wherever you drive, or choose Explore for no clock.
+Stop beside a landmark for a close look; Pike Place Market is walking pace, and its shops hand over cargo with
+their own rules (catch the thrown fish, flowers that must not tip, heavy cheese, yogurt on a clock).
+
 ## Run
 
 ```
@@ -51,7 +64,8 @@ Bumping things breaks your streak; driving at pedestrians costs 50 points (they 
 
 ## How it is built
 
-Everything is generated in code: there are no model, texture or audio files.
+City blocks are generated in code. Hero landmarks also use asset files in `public/assets/`: CC0 photographic
+textures, hand-designed SVG signage and the baked real map (credits in `public/assets/CREDITS.md`).
 
 - `src/config.js` — the whole map: avenues and streets with their extents, the hill profile, drivable areas and the
   block generator. The same data is exported to the shaders. Extending or replacing the map starts here.
@@ -62,6 +76,8 @@ Everything is generated in code: there are no model, texture or audio files.
 - `src/world/props.js` — lamps, light-wrapped trees, signals, parked cars, neon signs, barriers; split into map tiles that are skipped when far away.
 - `src/world/cars.js` — car models shared by parked cars and traffic.
 - `src/world/landmarks.js` — Lake Union, the park, MOHAI, boats and the streetcar.
+- `src/world/market.js` — Pike Place Market, modelled by hand: arcade, stalls, shopfronts, people.
+- `src/real/world.js` — builds a district from real map data: roads at any angle, footprints, shoreline, routing.
 - `src/world/districts.js` — monorail, Pike Place sign and bay with the Great Wheel, Westlake Park tree, Space Needle, glass garden, fountain.
 - `src/world/traffic.js`, `pedestrians.js` — street life.
 - `src/world/rain.js` — rain streaks and steam.
@@ -82,6 +98,11 @@ node tools/life.mjs                                # pedestrian and traffic clos
 node tools/scare.mjs                               # charges a pedestrian to check they dodge
 node tools/weather.mjs                             # the clear-evening toggle
 node tools/soak.mjs "" 60 downtown                 # 60 s of random driving and crashes in a district
+node tools/market.mjs                              # Pike Place: slow zone, postcards, shop cargo
+node tools/realmap.mjs                             # real map: drive, walls, traffic, a delivery
+node tools/realheroes.mjs                          # real map: photograph each landmark in place
+node tools/fetch-assets.mjs                        # re-download the CC0 textures
+node tools/bake-map.mjs city                       # rebuild the real map from raw OpenStreetMap data
 ```
 
 ## Not a survey map
