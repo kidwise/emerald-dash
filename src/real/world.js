@@ -71,7 +71,9 @@ export async function initRealWorld(app, mapName = 'slu') {
   const needleAt = needleB ? centreOf(needleB) : null;
   const glassAt = needleAt && [needleAt[0] - 62, needleAt[1] + 52], fountainAt = needleAt && [needleAt[0] - 203, needleAt[1] - 221];
   const inSet = (x, z, m = 0) => { if (!pikeT) return false; const [lx, lz] = pikeT.toLocal(x, z); return lx > -498 - m && lx < -386 + m && lz > 438 - m && lz < 714 + m; };
+  const spheresB = data.buildings.find(b => /The Spheres/.test(b.n));
   data.buildings = data.buildings.filter((b) => {
+    if (b === spheresB) return false;
     const [x, z] = centreOf(b);
     if (needleAt && (b === needleB || Math.hypot(x - glassAt[0], z - glassAt[1]) < 30)) return false;
     return !inSet(x, z);
@@ -281,6 +283,48 @@ export async function initRealWorld(app, mapName = 'slu') {
     heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], needleY + 84, needleAt[1]], dist: 150, lift: -78 },
       { name: 'Glass Garden', sub: 'Blown glass, lit from within', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], needleY + 3.5, glassAt[1]], dist: 26, lift: 0.5 });
   }
+  // ================================================================ the Amazon Spheres: three glass domes of plants
+  if (spheresB) {
+    const [sx, sz] = centreOf(spheresB);
+    // the domes sit in a row along the footprint's long axis
+    let ax = 1, az = 0, far = 0;
+    for (const p of spheresB.p) for (const q of spheresB.p) { const d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (d > far) { far = d; ax = (p[0] - q[0]) / d; az = (p[1] - q[1]) / d; } }
+    const baseY = Math.min(H(sx, sz), H(sx + ax * 22, sz + az * 22), H(sx - ax * 22, sz - az * 22));
+    const lines = [], glass = [], leaves = [], gp = [], gc = [], gs = [], gph = [];
+    const LEAF = [0x1f6a2c, 0x2f8a3a, 0x175224, 0x4a9a3a, 0x2a7a4a];
+    for (const [off, R] of [[0, 19.5], [-23, 15.5], [23, 15.5]]) {
+      const cx = sx + ax * off, cz = sz + az * off, cy = baseY + R * 0.42;
+      const edge = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(R, 2), 1).attributes.position.array;
+      for (let i = 0; i < edge.length; i += 6) { if (cy + edge[i + 1] < baseY - 0.3 && cy + edge[i + 4] < baseY - 0.3) continue; lines.push(cx + edge[i], cy + edge[i + 1], cz + edge[i + 2], cx + edge[i + 3], cy + edge[i + 4], cz + edge[i + 5]); }
+      glass.push(new THREE.SphereGeometry(R * 0.99, 36, 22).translate(cx, cy, cz));
+      for (let n = 0; n < 150; n++) {
+        const a = r() * 6.283, d = Math.sqrt(r()) * R * 0.7, y = baseY + 0.6 + Math.pow(r(), 2.2) * R * 0.85;
+        if (Math.hypot(d, y - cy) > R * 0.86) continue;
+        leaves.push({ p: [cx + Math.cos(a) * d, y, cz + Math.sin(a) * d], s: 0.7 + r() * 1.3, c: LEAF[Math.floor(r() * LEAF.length)] });
+      }
+      for (let n = 0; n < 34; n++) {
+        const a = r() * 6.283, d = Math.sqrt(r()) * R * 0.7, y = baseY + 2 + r() * R * 0.9;
+        if (Math.hypot(d, y - cy) > R * 0.85) continue;
+        const pink = r() < 0.2;
+        gp.push(cx + Math.cos(a) * d, y, cz + Math.sin(a) * d); gc.push(pink ? 2.6 : 2.4, pink ? 0.7 : 1.9, pink ? 1.8 : 1.1); gs.push(0.5 + r() * 0.5); gph.push(r());
+      }
+      obstacles.push({ x: cx, z: cz, r: R * 0.9 });
+    }
+    const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
+    const frame = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: new THREE.Color(1.7, 1.75, 1.8) })); frame.frustumCulled = false; scene.add(frame);
+    const leafMat = new THREE.MeshStandardMaterial({ roughness: 0.8 });
+    leafMat.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.95, 0.75) * 0.5;'); };
+    leafMat.customProgramCacheKey = () => 'sphereLeaves2';
+    const lm = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), leafMat, leaves.length), LM = new THREE.Matrix4(), LC = new THREE.Color();
+    leaves.forEach((q, n) => { LM.makeScale(q.s, q.s * 0.8, q.s).setPosition(q.p[0], q.p[1], q.p[2]); lm.setMatrixAt(n, LM); lm.setColorAt(n, LC.setHex(q.c)); });
+    lm.frustumCulled = false; scene.add(lm);
+    const shell = new THREE.Mesh(mergeGeometries(glass), new THREE.MeshPhysicalMaterial({ color: 0xbfe8dc, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.22, depthWrite: false, emissive: 0x3a5a4a, emissiveIntensity: 0.6 }));
+    shell.frustumCulled = false; shell.renderOrder = 3; scene.add(shell);
+    const grow = createGlowPoints(gp, gc, gs, gph, { twinkle: 0.1 }); scene.add(grow.points); glow.push(grow);
+    const nr = nearRoad(sx, sz, 3);
+    if (nr) heroStops.push({ name: 'The Spheres', sub: 'Three glass domes of cloud-forest plants at Amazon’s headquarters, opened in 2018', x: nr.x, z: nr.z, look: [sx, baseY + 9, sz], dist: 52, lift: 5 });
+  }
+
   // names in lights on the famous fronts, and the holiday star
   {
     const wallSign = (lot, text, color, up, w) => {
@@ -713,8 +757,17 @@ export async function initRealWorld(app, mapName = 'slu') {
   const start = [startRoad[0] - Math.sin(north) * 2.0, startRoad[1] + Math.cos(north) * 2.0, north];
   const named = (re) => data.buildings.find(b => re.test(b.n));
   const centre = (b) => { let x = 0, z = 0; for (const p of b.p) { x += p[0]; z += p[1]; } return [x / b.p.length, z / b.p.length]; };
-  const pois = [[/Naval Reserve Armory/, 'MOHAI', 'Museum of History & Industry, in the old Naval Reserve Armory'], [/Center for Wooden Boats/, 'Center for Wooden Boats', 'Historic boats on Lake Union'], [/Kenmore Air/, 'Kenmore Air', 'Seaplanes off the lake'], [/^REI$/, 'REI', 'The flagship store'], [/Amazon Fiona/, 'Amazon Fiona', 'One of the South Lake Union campus buildings'], [/Cascade People/, "Cascade People's Center", 'Cascade Playground']]
-    .map(([re, name, sub]) => { const b = named(re); if (!b) return null; const [x, z] = centre(b); return { name, sub, x, z, r: 55 }; }).filter(Boolean);
+  // places you discover by driving past them
+  const pois = [
+    [/Center for Wooden Boats/, 'Center for Wooden Boats', 'Historic boats on Lake Union'], [/Kenmore Air/, 'Kenmore Air', 'Seaplanes off the lake'], [/^REI$/, 'REI', 'The flagship store'],
+    [/Amazon Day 1/, 'Amazon Day 1', 'The headquarters tower beside the Spheres'], [/Amazon Doppler/, 'Amazon Doppler', 'The first of the downtown Amazon towers'],
+    [/^Google$/, 'Google', 'The South Lake Union campus'], [/Allen Institute/, 'Allen Institute', 'Brain science on Mercer St'],
+    [/MoPOP/, 'MoPOP', 'Museum of Pop Culture', 75], [/Climate Pledge Arena/, 'Climate Pledge Arena', 'Home of the Kraken and the Storm', 95], [/Pacific Science Center/, 'Pacific Science Center', 'The arches from the 1962 World’s Fair', 75],
+    [/Seattle Center Armory/, 'Seattle Center Armory', 'The food hall at Seattle Center', 70], [/Paramount Theatre/, 'Paramount Theatre', 'A 1928 movie palace'], [/Benaroya Hall/, 'Benaroya Hall', 'Home of the Seattle Symphony', 65],
+    [/Central Library/, 'Seattle Central Library', 'Glass and steel, opened in 2004', 65], [/^Rainier Tower$/, 'Rainier Tower', 'The tower on a pedestal'],
+    [/^Westlake Center$/, 'Westlake Center', 'Heart of the retail core'], [/^Pacific Place$/, 'Pacific Place', 'Downtown shopping'], [/^Nordstrom$/, 'Nordstrom', 'The flagship store'],
+  ].map(([re, name, sub, rad]) => { const b = named(re); if (!b) return null; const [x, z] = centre(b); return { name, sub, x, z, r: rad || 55 }; }).filter(Boolean);
+  for (const [re, sub] of [[/^Denny Park$/, 'Seattle’s oldest park'], [/Victor Steinbrueck Park/, 'Overlooking Elliott Bay, beside the market']]) { const pk = data.parks.find(q => re.test(q.n)); if (pk) { const [x, z] = centre(pk); pois.push({ name: pk.n, sub, x, z, r: 60 }); } }
   const wf = nearRoad(-25, 45, 3);
   const sources = [...(wf ? [{ name: 'Whole Foods Market', x: wf.x, z: wf.z, cargo: 'GROCERIES', rule: { fragile: 8.5, gentle: true } }] : []), ...heroSources];
   const coffeeSpots = []; for (let n = 0; n < 60 && coffeeSpots.length < 26; n++) { const rd = roads[Math.floor(r() * roads.length)]; if (rd.len < 60 || rd.kind.endsWith('_link')) continue; const p = rd.pts[Math.floor(rd.pts.length * (0.3 + r() * 0.4))]; if (p[0] > B.x0 + 30 && p[0] < B.x1 - 30 && p[1] > B.z0 + 30 && p[1] < B.z1 - 30) coffeeSpots.push(p); }
