@@ -127,9 +127,9 @@ export function createIcons({ H, r, mopop, library, arena, science, eagle, hamme
     const bx = (w, hgt, x, y) => new THREE.BoxGeometry(w, hgt, 0.35).translate(x, y, 0);
     fig.add(new THREE.Mesh(mergeGeometries([bx(0.95, 6.2, -0.75, 3.1), bx(0.95, 6.2, 0.75, 3.1), bx(2.7, 4.6, 0, 8.4), new THREE.CylinderGeometry(0.95, 0.95, 0.35, 20).rotateX(Math.PI / 2).translate(0, 11.8, 0), bx(0.6, 4.2, -1.6, 8.3)]), black));
     const arm = new THREE.Group(); arm.position.set(1.45, 10.2, 0.2);
-    arm.add(new THREE.Mesh(mergeGeometries([bx(0.6, 4.4, 0, -2.2), bx(0.3, 2.6, 0.2, -4.6).rotateZ(1.2).translate(1.9, -6.4, 0), bx(1.3, 0.8, 0, 0).translate(3.2, -4.9, 0)]), black));
+    arm.add(new THREE.Mesh(mergeGeometries([bx(0.6, 4.4, 0, -2.2), bx(0.28, 2.4, 0, -5.4), bx(1.5, 0.85, 0, -6.9)]), black));
     fig.add(arm); fig.position.set(hx, y0, hz); fig.rotation.y = face; group.add(fig);
-    updaters.push((t) => { arm.rotation.z = 0.55 + 0.5 * Math.sin(t * 1.6); });
+    updaters.push((t) => { arm.rotation.z = 1.0 + 0.55 * Math.sin(t * 1.6); });
   }
 
   // ---------------------------------------------------------------- the Gum Wall: a brick wall freckled with colour

@@ -222,7 +222,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     const ring = b.p;
     let lo = 1e9, hi = -1e9; for (const [x, z] of ring) { const y = H(x, z); lo = Math.min(lo, y); hi = Math.max(hi, y); }
     const base = lo - 0.4, top = hi + Hb;
-    let door = null, doorLen = 0, cx = 0, cz = 0;
+    let door = null, doorLen = 0, cx = 0, cz = 0, front = null, frontScore = 0;
     for (let i = 0; i < ring.length; i++) {
       const p = ring[i], q = ring[(i + 1) % ring.length];
       cx += p[0]; cz += p[1];
@@ -244,7 +244,14 @@ export async function initRealWorld(app, mapName = 'slu') {
     cx /= ring.length; cz /= ring.length;
     if (Hb > 70) beacons.push([cx, top + 3, cz]);
     if (mohai) for (let i = 0; i < ring.length; i++) { const p = ring[i], q = ring[(i + 1) % ring.length]; g.wall(p[0], p[1], q[0], q[1], top - 0.7, top - 0.5, { style: STYLE.EMISSIVE, lit: 2.6, tint: [1.0, 0.82, 0.6] }); }
-    if (b.n && door) lots.push({ name: b.n, door, base, top, type: 'office', district: 'slu', x0: cx, x1: cx, z0: cz, z1: cz, h: Hb });
+    // the "front" is the wall facing the widest street: where a name in lights belongs
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i], q = ring[(i + 1) % ring.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]); if (len < 12) continue;
+      const nx = -(q[1] - p[1]) / len, nz = (q[0] - p[0]) / len, mx = (p[0] + q[0]) / 2, mz = (p[1] + q[1]) / 2, nr = nearRoad(mx + nx * 8, mz + nz * 8);
+      if (!nr || nr.d - nr.rd.hw > 9 || inPoly(mx + nx * 2.4, mz + nz * 2.4, ring)) continue;
+      const score = nr.rd.w * 100 + len; if (score > frontScore) { frontScore = score; front = { x: mx + nx * 2.4, z: mz + nz * 2.4, nx, nz }; }
+    }
+    if (b.n && door) lots.push({ name: b.n, door, front: front || door, base, top, type: 'office', district: 'slu', x0: cx, x1: cx, z0: cz, z1: cz, h: Hb });
   }
   // ================================================================ hero landmarks at their real addresses
   const boxSegs = (b, tf) => { const c = [[b.x0, b.z0], [b.x1, b.z0], [b.x1, b.z1], [b.x0, b.z1]].map(q => (tf ? tf(q[0], q[1]) : q)); for (let i = 0; i < 4; i++) segs.push({ ax: c[i][0], az: c[i][1], bx: c[(i + 1) % 4][0], bz: c[(i + 1) % 4][1] }); };
@@ -374,7 +381,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   // names in lights on the famous fronts, and the holiday star
   {
     const wallSign = (lot, text, color, up, w) => {
-      const d = lot.door, wx = d.x - d.nx * 2.4, wz = d.z - d.nz * 2.4, y = H(wx, wz) + up, tex = textTexture([[text, 150, 128]], color, 1024, 256);
+      const d = lot.front, wx = d.x - d.nx * 2.4, wz = d.z - d.nz * 2.4, y = H(wx, wz) + up, tex = textTexture([[text, 150, 128]], color, 1024, 256);
       scene.add(signPlane(tex, w, w / 4, wx + d.nx * 0.35, y, wz + d.nz * 0.35, Math.atan2(d.nx, d.nz)));
       const back = new THREE.Mesh(new THREE.BoxGeometry(w + 0.3, w / 4 + 0.3, 0.2), darkMetal); back.position.set(wx + d.nx * 0.2, y, wz + d.nz * 0.2); back.rotation.y = Math.atan2(d.nx, d.nz); scene.add(back);
       return { wx, wz, y };
@@ -385,7 +392,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     const pp = find(/^Pacific Place$/); if (pp) wallSign(pp, 'PACIFIC PLACE', '#ffd35a', 13, 24);
     const nd = find(/^Nordstrom$/);
     if (nd) {
-      const at = wallSign(nd, 'NORDSTROM', '#ffffff', 12, 20), d = nd.door, tx = d.nz, tz = -d.nx;
+      const at = wallSign(nd, 'NORDSTROM', '#ffffff', 12, 20), d = nd.front, tx = d.nz, tz = -d.nx;
       const sp = [], scol = [], ss = [], sph = [], R1 = 6.5, R2 = 2.7, v = [];
       for (let i = 0; i < 10; i++) { const a = (i / 10) * 6.283 - Math.PI / 2, rr = i % 2 ? R2 : R1; v.push([Math.cos(a) * rr, -Math.sin(a) * rr]); }
       for (let i = 0; i < 10; i++) { const A = v[i], Bq = v[(i + 1) % 10]; for (let t = 0; t < 1; t += 0.085) { const u = A[0] + (Bq[0] - A[0]) * t, w = A[1] + (Bq[1] - A[1]) * t; sp.push(at.wx + d.nx * 0.5 + tx * u, at.y + 12 + w, at.wz + d.nz * 0.5 + tz * u); scol.push(3.0, 2.3, 1.2); ss.push(0.34); sph.push(r()); } }
