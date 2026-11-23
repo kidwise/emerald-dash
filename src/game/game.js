@@ -341,8 +341,29 @@ export function initGame(app) {
     if (!playing) { input.throttle = 0; input.steer = 0; input.drift = false; }
     van.update(dt, input);
 
+    const fxv = Math.cos(van.heading), fzv = Math.sin(van.heading);
+    for (const e of world.traffic.update(dt, van)) {
+      const dc = Math.hypot(e.car.x - van.pos.x, e.car.z - van.pos.z);
+      if (e.type === 'honk' && playing && dc < 40) audio.play('horn', Math.max(0.3, 1 - dc / 40));
+      if (e.type === 'nearmiss' && playing) {
+        const pts = e.min < 3.2 ? 100 : 60;
+        S.score += pts; S.nearMisses = (S.nearMisses || 0) + 1;
+        const sp = project(van.pos.x, 3.2, van.pos.z);
+        hud.pop(sp.x, sp.y, `NEAR MISS +${pts}`, 'near'); hud.setScore(S.score, S.streak); audio.play('near');
+      }
+    }
+    for (const e of world.peds.update(dt, van, app.time)) {
+      if (e.type === 'scare' && playing) {
+        audio.play('yelp');
+        S.score = Math.max(0, S.score - 50); S.streak = 0; hud.setScore(S.score, 0);
+        const sp = project(e.x, 2.6, e.z);
+        hud.pop(sp.x, sp.y, 'WATCH IT!  −50', 'miss');
+      }
+    }
     for (const e of van.events) {
       if (e.type === 'crash') {
+        const hitCar = world.traffic.bump(van.pos.x + fxv * 2, van.pos.z + fzv * 2);
+        if (hitCar && playing) audio.play('horn', 1);
         audio.play('crash', e.force); S.shake = Math.min(0.7, 0.12 + e.force * 0.03);
         const fx = Math.cos(van.heading), fz = Math.sin(van.heading);
         for (let i = 0; i < 16; i++) emit(van.pos.x + fx * 2.6, 0.8, van.pos.z + fz * 2.6, (Math.random() - 0.5) * 10, 2 + Math.random() * 5, (Math.random() - 0.5) * 10, 0.35 + Math.random() * 0.3, 0.12, 3.0, 1.6, 0.4, 14, 1);
@@ -464,6 +485,13 @@ export function initGame(app) {
     const tr = world.streetcar.state, td = tr.dir;
     hp[3].set(tr.x, 1.2, tr.z + td * 10, 2.2); tmp.set(0, -0.08, td).normalize(); hd[3].set(tmp.x, tmp.y, tmp.z, 0);
     hp[4].set(tr.x, 1.2, tr.z - td * 10, 0.7); tmp.set(0, -0.16, -td).normalize(); hd[4].set(tmp.x, tmp.y, tmp.z, 1);
+    // headlight pools for the traffic nearest the camera
+    const near = world.traffic.cars.map(c => [(c.x - camera.position.x) ** 2 + (c.z - camera.position.z) ** 2, c]).sort((a, b) => a[0] - b[0]);
+    for (let i = 5; i < 12; i++) {
+      const c = near[i - 5] && near[i - 5][1];
+      if (c) { const cx = Math.cos(c.h), cz = Math.sin(c.h); hp[i].set(c.x + cx * 2.3, 0.75, c.z + cz * 2.3, 1.5); tmp.set(cx, -0.09, cz).normalize(); hd[i].set(tmp.x, tmp.y, tmp.z, 0); }
+      else hp[i].set(0, -100, 0, 0);
+    }
 
     const ru = world.rain.uniforms;
     camera.getWorldDirection(tmp);
@@ -480,7 +508,7 @@ export function initGame(app) {
       hud.setClock(S.time, S.delivered, ORDERS);
       hud.setSpeed(van.speed * 2.237, Math.max(0, van.boost) / 3.6);
       if (frameN % 6 === 0) hud.setStreet(streetName());
-      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state);
+      if (frameN % 2 === 0) hud.drawMap(van, targets, pickups, world.streetcar.state, world.traffic.cars);
       const W = innerWidth, H = innerHeight, m = 46;
       const dv = (t) => (t.x - van.pos.x) ** 2 + (t.z - van.pos.z) ** 2;
       hud.setPins(targets.filter(t => !t.done).sort((a, b) => dv(a) - dv(b)).slice(0, 3).map(t => {

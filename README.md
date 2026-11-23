@@ -30,6 +30,9 @@ Needs a WebGL2 browser with a real GPU. Resolution drops automatically if the fr
 The white marker on the ground shows where a parcel thrown *now* would land; it carries the van's speed,
 so release as the marker crosses the glowing ring. Faster throws, dead-centre drops and unbroken streaks score more.
 
+Passing moving traffic fast and close without touching it scores a near miss. Bumping a car or wall breaks your
+streak, and driving at pedestrians costs 50 points (they always jump clear).
+
 ## How it is built
 
 Everything is generated in code: there are no model, texture or audio files.
@@ -42,6 +45,8 @@ Everything is generated in code: there are no model, texture or audio files.
 - `src/world/props.js` — lamps, light-wrapped trees, traffic signals, parked cars, neon signs, barriers.
 - `src/world/landmarks.js` — the lake, park, museum, boats, far shore, Space Needle and streetcar.
 - `src/world/rain.js` — rain streaks and steam.
+- `src/world/traffic.js` — ambient cars that follow lanes, obey the signals, queue, and brake for the van and streetcar.
+- `src/world/pedestrians.js` — people with umbrellas on the sidewalks; they jump clear of the van and are never hit.
 - `src/game/van.js` — the van model and arcade driving physics.
 - `src/game/game.js` — deliveries, scoring, camera, particles; `hud.js` and `audio.js` alongside.
 - `src/gfx/post.js` — ambient occlusion, bloom, filmic tone mapping, grain, anti-aliasing.
@@ -54,6 +59,9 @@ Everything is generated in code: there are no model, texture or audio files.
 node tools/shot.mjs name "cam=x,y,z,tx,ty,tz"     # fixed debug camera
 node tools/shot.mjs drive "autostart=1&auto=1,0,0&wait=4000"
 node tools/play.mjs                                # drives the game with real key presses
+node tools/soak.mjs "" 60                           # 60 s of random driving and crashes; reports if the picture breaks
+node tools/life.mjs                                # pedestrian and traffic close-ups plus traffic-flow statistics
+node tools/scare.mjs                               # charges a pedestrian to check they dodge
 ```
 
 ## Naming

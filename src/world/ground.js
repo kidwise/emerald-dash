@@ -19,8 +19,8 @@ uniform float uTime;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
 uniform vec3 uAmbient;
-uniform vec4 uHeadPos[6];   // xyz = position, w = intensity
-uniform vec4 uHeadDir[6];   // xyz = direction, w = warm(0)/red(1) tint
+uniform vec4 uHeadPos[12];   // xyz = position, w = intensity
+uniform vec4 uHeadDir[12];   // xyz = direction, w = warm(0)/red(1) tint
 uniform vec4 uGlow[8];      // xyz = position, w = radius   (coloured local glows: targets, signs)
 uniform vec3 uGlowCol[8];
 varying vec3 vWPos;
@@ -204,7 +204,8 @@ void main(){
     for (int j = 0; j < 4; j++) { float lz = Z_NORTH - 12.0 - 22.0 * float(j); light += LAMP_COLOR * (lampFall(P, vec3(-5.6, 5.2, lz)) + lampFall(P, vec3(5.6, 5.2, lz))) * 6.0; }
   }
 #endif
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 12; i++) {
+    if (uHeadPos[i].w <= 0.0) continue;
     vec3 L = P - uHeadPos[i].xyz; float d = length(L); vec3 ld = L / max(d, 1e-3);
     float cone = smoothstep(0.80, 0.985, dot(ld, uHeadDir[i].xyz));
     float pool = cone * exp(-d * 0.050) * smoothstep(1.0, 4.5, d);
@@ -256,8 +257,8 @@ export function createGround(reflection) {
     uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) },
     uFogDensity: { value: FOG_DENSITY },
     uAmbient: { value: new THREE.Color(0.20, 0.30, 0.50) },
-    uHeadPos: { value: Array.from({ length: 6 }, () => new THREE.Vector4(0, -100, 0, 0)) },
-    uHeadDir: { value: Array.from({ length: 6 }, () => new THREE.Vector4(0, 0, 1, 0)) },
+    uHeadPos: { value: Array.from({ length: 12 }, () => new THREE.Vector4(0, -100, 0, 0)) },
+    uHeadDir: { value: Array.from({ length: 12 }, () => new THREE.Vector4(0, 0, 1, 0)) },
     uGlow: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, -100, 0, 1)) },
     uGlowCol: { value: Array.from({ length: 8 }, () => new THREE.Color(0, 0, 0)) },
   };

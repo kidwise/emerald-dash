@@ -4,6 +4,8 @@ import { createLamps, createTrees, createSignals, createParkedCars, createSigns,
 import { createRain, createSteam } from './rain.js';
 import { createLake, createPark, createNeedle, createStreetcar } from './landmarks.js';
 import { AVENUES, STREETS } from '../config.js';
+import { createTraffic } from './traffic.js';
+import { createPedestrians } from './pedestrians.js';
 
 export async function initWorld(app) {
   const { scene, renderer } = app;
@@ -28,6 +30,9 @@ export async function initWorld(app) {
   const park = createPark(colliders); scene.add(park.group); glow.push(...park.glow);
   const needle = createNeedle(); scene.add(needle.group); glow.push(...needle.glow);
   const streetcar = createStreetcar(); scene.add(streetcar.group); colliders.push(streetcar.collider);
+
+  const traffic = createTraffic(signals, streetcar, colliders); scene.add(traffic.group);
+  const peds = createPedestrians(); scene.add(peds.group);
 
   // aircraft warning beacons on the tall towers
   if (buildings.beacons.length) {
@@ -72,7 +77,7 @@ export async function initWorld(app) {
     steam.uniforms.uScale.value = sc;
   });
 
-  app.world = { colliders, obstacles, buildings, lamps, trees, signals, parked, streetcar, rain, steam, lake, park, updateLampPool };
+  app.world = { colliders, obstacles, buildings, lamps, trees, signals, parked, streetcar, traffic, peds, rain, steam, lake, park, updateLampPool };
   app.updateWorld = (dt) => { for (const u of updaters) u(dt); };
   app.update = (dt) => app.updateWorld(dt);
   void AVENUES; void STREETS;

@@ -83,6 +83,9 @@ export function createAudio() {
       case 'boost': tone(300, 0.5, 'sawtooth', 0.09, 0, 1400); burst(0.6, 'bandpass', 500, 4000, 0.16); break;
       case 'bell': tone(1318, 0.9, 'sine', 0.12); tone(1975, 0.7, 'sine', 0.05); tone(1318, 0.9, 'sine', 0.12, 0.32); tone(1975, 0.7, 'sine', 0.05, 0.32); break;
       case 'place': tone(523, 0.3, 'sine', 0.1); tone(659, 0.3, 'sine', 0.1, 0.1); tone(784, 0.5, 'sine', 0.1, 0.2); break;
+      case 'horn': tone(392, 0.42, 'sawtooth', 0.05 * v); tone(494, 0.42, 'sawtooth', 0.05 * v); break;
+      case 'yelp': tone(520, 0.16, 'triangle', 0.14, 0, 880); tone(700, 0.2, 'triangle', 0.1, 0.12, 420); break;
+      case 'near': tone(1320, 0.12, 'sine', 0.12); tone(1760, 0.2, 'sine', 0.12, 0.07); burst(0.25, 'bandpass', 900, 3000, 0.12); break;
       case 'tick': tone(1000, 0.05, 'square', 0.05); break;
       case 'start': tone(392, 0.15, 'triangle', 0.16); tone(523, 0.15, 'triangle', 0.16, 0.14); tone(784, 0.4, 'triangle', 0.2, 0.28); break;
       case 'win': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.5, 'triangle', 0.2, i * 0.12)); break;

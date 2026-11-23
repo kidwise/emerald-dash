@@ -285,7 +285,7 @@ function cabinProfile(kind) {
   return s;
 }
 function extrudeX(shape, width, bevel) {
-  const g = new THREE.ExtrudeGeometry(shape, { depth: width - bevel * 2, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 3, curveSegments: 10 });
+  const g = new THREE.ExtrudeGeometry(shape, { depth: width - bevel * 2, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelOffset: -bevel, bevelSegments: 3, curveSegments: 10 });
   return g.translate(0, 0, -(width - bevel * 2) / 2);   // length along x, width along z
 }
 export function buildCarGeometries(kind) {
@@ -296,8 +296,8 @@ export function buildCarGeometries(kind) {
   const wheels = mergeGeometries([[-1.42, 1], [-1.42, -1], [1.42, 1], [1.42, -1]].map(([x, s]) =>
     new THREE.CylinderGeometry(wr, wr, 0.24, 18).rotateX(Math.PI / 2).translate(x, wr, s * (W / 2 - 0.1))));
   const hy = kind === 0 ? 0.72 : 0.86, hx = kind === 0 ? 2.305 : 2.365;
-  const tail = mergeGeometries([box(0.03, 0.12, 0.5, -hx - 0.01, hy + 0.08, W / 2 - 0.36), box(0.03, 0.12, 0.5, -hx - 0.01, hy + 0.08, -W / 2 + 0.36)]);
-  const headl = mergeGeometries([box(0.03, 0.1, 0.42, hx, hy - 0.06, W / 2 - 0.34), box(0.03, 0.1, 0.42, hx, hy - 0.06, -W / 2 + 0.34)]);
+  const tail = mergeGeometries([box(0.06, 0.12, 0.5, -hx + 0.015, hy + 0.08, W / 2 - 0.36), box(0.06, 0.12, 0.5, -hx + 0.015, hy + 0.08, -W / 2 + 0.36)]);
+  const headl = mergeGeometries([box(0.07, 0.11, 0.42, hx - 0.012, hy - 0.06, W / 2 - 0.34), box(0.07, 0.11, 0.42, hx - 0.012, hy - 0.06, -W / 2 + 0.34)]);
   return { body, cabin, wheels, tail, headl, W };
 }
 export const carMaterials = {
@@ -461,8 +461,8 @@ export function createBarriers(colliders) {
     }
     colliders.push(alongX ? { x0: x - span / 2, x1: x + span / 2, z0: z - 0.6, z1: z + 0.6 } : { x0: x - 0.6, x1: x + 0.6, z0: z - span / 2, z1: z + span / 2 });
   };
-  for (const s of STREETS) { add(X_WEST - 3, s.z, false, s.hw * 2 + 1); add(X_EAST + 3, s.z, false, s.hw * 2 + 1); }
-  for (const a of AVENUES) add(a.x, Z_SOUTH + 3, true, a.hw * 2 + 1);
+  for (const s of STREETS) { add(X_WEST - 7, s.z, false, s.hw * 2 + 1); add(X_EAST + 7, s.z, false, s.hw * 2 + 1); }
+  for (const a of AVENUES) add(a.x, Z_SOUTH + 7, true, a.hw * 2 + 1);
   const mat = new THREE.MeshStandardMaterial({ color: 0x8a8a84, roughness: 0.8 });
   const m = new THREE.Mesh(mergeGeometries(geos), mat);
   group.add(m);

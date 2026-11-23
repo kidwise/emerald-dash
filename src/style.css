@@ -51,6 +51,7 @@ html, body { margin: 0; height: 100%; background: #05080d; overflow: hidden; }
 
 .hud-pops .pop { position: absolute; transform: translate(-50%, -50%); font: 800 26px var(--cond); letter-spacing: 0.06em; color: #fff; text-shadow: 0 0 18px rgba(85, 240, 255, 0.9), 0 2px 6px rgba(0, 0, 0, 0.7); animation: pop 1.25s ease-out forwards; white-space: nowrap; }
 .pop.perfect { color: #fff7c2; font-size: 34px; text-shadow: 0 0 22px #ffb347, 0 2px 6px rgba(0, 0, 0, 0.7); }
+.pop.near { color: #d8fbff; font-size: 24px; text-shadow: 0 0 18px rgba(85, 240, 255, 0.95), 0 2px 6px rgba(0, 0, 0, 0.7); }
 .pop.miss { color: #ff8a8a; font-size: 20px; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8); }
 @keyframes pop { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.6); } 15% { opacity: 1; transform: translate(-50%, -70%) scale(1.12); } 100% { opacity: 0; transform: translate(-50%, -190%) scale(1); } }
 

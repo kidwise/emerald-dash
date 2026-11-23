@@ -115,7 +115,7 @@ export function createHud() {
     hideOverlay() { overlay.classList.remove('show'); overlay.style.pointerEvents = 'none'; },
 
     // north-up minimap
-    drawMap(van, targets, pickups, tram) {
+    drawMap(van, targets, pickups, tram, cars = []) {
       const c = map.getContext('2d');
       const w = map.width, h = map.height;
       const zTop = LAKE_Z - 30, zBot = Z_SOUTH + 16, xL = X_WEST - 14, xR = X_EAST + 14;
@@ -128,6 +128,7 @@ export function createHud() {
       c.strokeStyle = 'rgba(190,210,230,0.5)'; c.lineCap = 'butt';
       for (const a of AVENUES) { c.lineWidth = a.hw * 2 * sx; c.beginPath(); c.moveTo(X(a.x), Z(Z_NORTH)); c.lineTo(X(a.x), Z(Z_SOUTH)); c.stroke(); }
       for (const s of STREETS) { c.lineWidth = s.hw * 2 * sz; c.beginPath(); c.moveTo(X(X_WEST), Z(s.z)); c.lineTo(X(X_EAST), Z(s.z)); c.stroke(); }
+      c.fillStyle = 'rgba(255,235,200,0.75)'; for (const k of cars) c.fillRect(X(k.x) - 2, Z(k.z) - 2, 4, 4);
       if (tram) { c.fillStyle = '#c77dff'; c.fillRect(X(tram.x) - 3, Z(tram.z) - 9, 6, 18); }
       for (const p of pickups) if (p.active) { c.fillStyle = '#ffb347'; c.beginPath(); c.arc(X(p.x), Z(p.z), 4, 0, 7); c.fill(); }
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.006);
