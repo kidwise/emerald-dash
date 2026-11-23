@@ -1,9 +1,10 @@
-// Real business names, and the stand-ins used when the game is published.
+// Real business names, and an optional set of stand-ins.
 //
-// In development the game shows real names (they come from the map data and from our own research).
-// A production build (`npm run build`) shows stand-ins instead, and loads the stand-in shop signs from
-// public/assets/signs-standin/. Add `?names=standin` to preview that in development.
-export const STANDIN = import.meta.env.PROD || new URLSearchParams(location.search).get('names') === 'standin';
+// The game shows real names, in development and when published, alongside a "not affiliated" notice
+// on the title screen. Stand-ins are kept as a switch: add `?names=standin` to the URL, or set
+// ALWAYS_STANDIN below to publish with invented names and the signs in public/assets/signs-standin/.
+const ALWAYS_STANDIN = false;
+export const STANDIN = ALWAYS_STANDIN || new URLSearchParams(location.search).get('names') === 'standin';
 
 // applied in order to names, descriptions and sign lettering
 const SWAPS = [
