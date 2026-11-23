@@ -140,7 +140,7 @@ export function createPedestrians(count = 260, custom = null) {
       const want = p.dir > 0 ? P.h : P.h + Math.PI;
       let dh = want - p.h; dh = ((dh + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       p.h += dh * Math.min(1, dt * 5);
-      let y = custom ? custom.y : heightAt(x, z) + CURB;
+      let y = custom ? (typeof custom.y === 'function' ? custom.y(x, z) : custom.y) : heightAt(x, z) + CURB;
       if (p.hop > 0) { p.hop -= dt; y += Math.sin(Math.max(0, p.hop) / 0.55 * Math.PI) * 0.38; }
       const stride = fleeing ? 0 : Math.sin(time * p.speed * 5.2 + p.phase);
       y += Math.abs(stride) * 0.025;

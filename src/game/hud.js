@@ -113,8 +113,8 @@ export function createHud() {
             <button class="go">START SHIFT <small>ENTER</small></button>
             <button class="go alt">EXPLORE <small>E</small></button>
           </div>
-          <a class="maplink" href="${real ? './' : './?map=real'}">${real ? '← Back to the hand-built city' : 'Preview: the true-scale city, built from real map data →'}</a>
-          ${real ? `<p class="tip"><b>Real-map preview.</b> True-scale streets, building footprints and shoreline from Lake Union to Pike Place and Seattle Center, with the hand-built market and Space Needle at their real addresses. The ground is flat here (no hills yet) and there is no streetcar. ${credit}.</p>` : ''}
+          <a class="maplink" href="${real ? './?map=grid' : './'}">${real ? 'Play the hand-built arcade city instead →' : '← Back to the real map'}</a>
+          ${real ? `<p class="tip">True-scale streets, buildings, hills and shoreline from Lake Union to Pike Place and Seattle Center. ${credit}.</p>` : ''}
           <p class="tip"><b>Shift:</b> the clock runs down and every delivery adds time, more for longer trips. Follow the glowing line to the selected job.
           <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a pick-up for a cross-town run: drive gently and hand over slowly.
           <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake.<br><b>Explore:</b> no clock. Landmarks found: ${found} of ${places}.</p>

@@ -6,7 +6,11 @@ import { createLake } from '../world/landmarks.js';
 import { rng } from '../world/buildings.js';
 import { setMapOverride } from '../config.js';
 import { createPikePlace, PIKE } from '../world/market.js';
-import { createCenter, createMonorail } from '../world/districts.js';
+import { createCenter, createMonorail, createMarket, createRetailCore } from '../world/districts.js';
+import { createStreetcar } from '../world/landmarks.js';
+import { darkMetal } from '../world/props.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MARKET_Y } from '../config.js';
 import { makeCarSet, CAR_KINDS, CAR_COLORS } from '../world/cars.js';
 import { createPedestrians } from '../world/pedestrians.js';
 
@@ -35,6 +39,17 @@ export async function initRealWorld(app, mapName = 'slu') {
   const { scene, renderer, ground, reflection } = app;
   const data = await (await fetch(`/assets/map/${mapName}.json`)).json();
   const B = data.bounds, r = rng(47618);
+  // real ground heights (tools/bake-dem.mjs); without the file the district is simply flat
+  let HG = null;
+  try { const res = await fetch(`/assets/map/${mapName}-height.json`); if (res.ok) HG = await res.json(); } catch { /* flat */ }
+  const hgt = HG ? Float32Array.from(HG.data, v => v * HG.unit) : null;
+  const H = (x, z) => {
+    if (!hgt) return 0;
+    const fx = Math.max(0, Math.min(HG.nx - 1.001, (x - HG.x0) / HG.step)), fz = Math.max(0, Math.min(HG.nz - 1.001, (z - HG.z0) / HG.step));
+    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, k = j * HG.nx + i;
+    const a = hgt[k], b = hgt[k + 1], c = hgt[k + HG.nx + 1], d = hgt[k + HG.nx];
+    return u > v ? a + (b - a) * u + (c - b) * v : a + (c - d) * u + (d - a) * v;    // the same two triangles the terrain mesh draws
+  };
   const updaters = [], glow = [], obstacles = [], colliders = [];
 
   // ---- hand-built landmarks take their real places; the map's own buildings make way for them
@@ -61,6 +76,30 @@ export async function initRealWorld(app, mapName = 'slu') {
     return !inSet(x, z);
   });
 
+  // ---- shape the ground: level pads under the hand-built landmarks, and beds under the water
+  const lakes = data.water.filter(w => w.length > 3);
+  const waterY = lakes.map((ring) => { let lo = 1e9; for (const [x, z] of ring) if (x > B.x0 && x < B.x1 && z > B.z0 && z < B.z1) lo = Math.min(lo, H(x, z)); return lo > 1e8 ? 0 : Math.max(0, lo - 0.25); });
+  const inWater = (x, z) => lakes.some(ring => inPoly(x, z, ring));
+  const ease = (t) => { const q = Math.max(0, Math.min(1, t)); return q * q * (3 - 2 * q); };
+  let pikeY = 0, needleY = 0;
+  if (hgt) {
+    const pads = [];
+    if (pikeT) {
+      const c = pikeT.toWorld(-440, 574); pikeY = H(c[0], c[1]);
+      pads.push({ level: pikeY, w: (x, z) => { const [lx, lz] = pikeT.toLocal(x, z); return 1 - ease(Math.hypot(Math.max(-504 - lx, 0, lx + 380), Math.max(432 - lz, 0, lz - 720)) / 34); } });
+    }
+    if (needleAt) {
+      needleY = H(needleAt[0], needleAt[1]);
+      for (const [q, rad] of [[needleAt, 60], [glassAt, 46], [fountainAt, 40]]) pads.push({ level: needleY, w: (x, z) => 1 - ease((Math.hypot(x - q[0], z - q[1]) - rad) / 30) });
+    }
+    const boxes = lakes.map((ring) => { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [x, z] of ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); } return [x0, x1, z0, z1]; });
+    for (let j = 0; j < HG.nz; j++) for (let i = 0; i < HG.nx; i++) {
+      const x = HG.x0 + i * HG.step, z = HG.z0 + j * HG.step, k = j * HG.nx + i;
+      for (const pad of pads) { const w = pad.w(x, z); if (w > 0) hgt[k] += (pad.level - hgt[k]) * w; }
+      lakes.forEach((ring, n) => { const b = boxes[n]; if (x > b[0] && x < b[1] && z > b[2] && z < b[3] && inPoly(x, z, ring)) hgt[k] = waterY[n] - 1.8; });
+    }
+  }
+
   // ================================================================ roads
   // resample every few metres so paint can fade in and out of junctions smoothly
   const junctionR = new Map();
@@ -79,12 +118,13 @@ export async function initRealWorld(app, mapName = 'slu') {
 
   const pos = [], uv = [], info = [], idx = [];
   roads.forEach((rd, ri) => {
-    const base = pos.length / 3, half = rd.hw + 0.3, y = 0.03 + (ri % 32) * 0.0008;
+    const base = pos.length / 3, half = rd.hw + 0.3, y = 0.10 + (ri % 32) * 0.0008;
     rd.pts.forEach((p, i) => {
       const a = rd.pts[Math.max(0, i - 1)], b = rd.pts[Math.min(rd.pts.length - 1, i + 1)];
       let dx = b[0] - a[0], dz = b[1] - a[1]; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
       const nx = -dz, nz = dx;
-      pos.push(p[0] - nx * half, y, p[1] - nz * half, p[0] + nx * half, y, p[1] + nz * half);
+      const lx = p[0] - nx * half, lz = p[1] - nz * half, qx = p[0] + nx * half, qz = p[1] + nz * half;
+      pos.push(lx, H(lx, lz) + y, lz, qx, H(qx, qz) + y, qz);
       uv.push(-half, rd.v[i], half, rd.v[i]);
       const kind = rd.hw > 6.9 ? 0 : 1;
       info.push(rd.hw, kind, rd.dJ[i], 0, rd.hw, kind, rd.dJ[i], 0);
@@ -94,8 +134,8 @@ export async function initRealWorld(app, mapName = 'slu') {
   // a disc of plain asphalt over every junction hides the overlaps
   for (const [k, R] of junctionR) {
     const [x, z] = k.split(',').map(Number), base = pos.length / 3, rad = R + 0.6, N = 14;
-    pos.push(x, 0.062, z); uv.push(0, 0); info.push(rad, 1, -1, 0);
-    for (let i = 0; i <= N; i++) { const a = (i / N) * Math.PI * 2; pos.push(x + Math.cos(a) * rad, 0.062, z + Math.sin(a) * rad); uv.push(0, 0); info.push(rad, 1, -1, 0); if (i) idx.push(base, base + i + 1, base + i); }
+    pos.push(x, H(x, z) + 0.14, z); uv.push(0, 0); info.push(rad, 1, -1, 0);
+    for (let i = 0; i <= N; i++) { const a = (i / N) * Math.PI * 2, px = x + Math.cos(a) * rad, pz = z + Math.sin(a) * rad; pos.push(px, H(px, pz) + 0.14, pz); uv.push(0, 0); info.push(rad, 1, -1, 0); if (i) idx.push(base, base + i + 1, base + i); }
   }
   const roadGeo = new THREE.BufferGeometry();
   roadGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -104,22 +144,26 @@ export async function initRealWorld(app, mapName = 'slu') {
   roadGeo.setIndex(idx); roadGeo.computeVertexNormals();
   const roadMat = ground.mk(3); roadMat.side = THREE.DoubleSide;
   const roadMesh = new THREE.Mesh(roadGeo, roadMat);
-  const pave = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), ground.mk(4));
+  let paveGeo;
+  if (hgt) {
+    const tp = new Float32Array(HG.nx * HG.nz * 3), ti = [];
+    for (let j = 0; j < HG.nz; j++) for (let i = 0; i < HG.nx; i++) { const k = j * HG.nx + i; tp[k * 3] = HG.x0 + i * HG.step; tp[k * 3 + 1] = hgt[k]; tp[k * 3 + 2] = HG.z0 + j * HG.step; if (i < HG.nx - 1 && j < HG.nz - 1) ti.push(k, k + HG.nx + 1, k + 1, k, k + HG.nx, k + HG.nx + 1); }
+    paveGeo = new THREE.BufferGeometry(); paveGeo.setAttribute('position', new THREE.BufferAttribute(tp, 3)); paveGeo.setIndex(ti); paveGeo.computeVertexNormals();
+  } else paveGeo = new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2);
+  const pave = new THREE.Mesh(paveGeo, ground.mk(4));
   const grounds = new THREE.Group();
   grounds.add(pave, roadMesh);
-  for (const pk of data.parks) if (pk.p.length > 2) grounds.add(new THREE.Mesh(flatShape(pk.p, 0.015), ground.mk(5)));
   grounds.traverse(o => { o.layers.set(1); o.frustumCulled = false; });
   scene.add(grounds);
 
   // ================================================================ water: the real shoreline
-  const lakes = data.water.filter(w => w.length > 3);
-  for (const ring of lakes) {
-    const lake = createLake(reflection, { geometry: flatShape(ring, 0.02) });
+  lakes.forEach((ring, n) => {
+    const lake = createLake(reflection, { geometry: flatShape(ring, 0), y: waterY[n] + 0.02 });
     lake.mesh.frustumCulled = false;
     scene.add(lake.mesh);
-    updaters.push(() => { lake.uniforms.uTime.value = app.time; });
-  }
-  const inWater = (x, z) => lakes.some(ring => inPoly(x, z, ring));
+    // the planar mirror only matches the water when it lies level at the water's height
+    updaters.push(() => { lake.uniforms.uTime.value = app.time; lake.uniforms.uMirrorY.value = reflection.point.y; lake.uniforms.uPlanar.value = reflection.normal.y > 0.9995 && Math.abs(reflection.point.y - waterY[n]) < 0.9 ? 1 : 0; });
+  });
 
   // ================================================================ buildings from real footprints
   const g = new FacadeGeo();
@@ -143,14 +187,14 @@ export async function initRealWorld(app, mapName = 'slu') {
 
   for (const b of data.buildings) {
     const a = b.a;
-    const H = b.h || (a > 2500 ? 26 + r() * 30 : a > 900 ? 13 + r() * 18 : 7 + r() * 8);
+    const Hb = b.h || (a > 2500 ? 26 + r() * 30 : a > 900 ? 13 + r() * 18 : 7 + r() * 8);
     const home = ['apartments', 'residential', 'hotel', 'dormitory'].includes(b.t), work = ['office', 'commercial'].includes(b.t), shop = ['retail', 'warehouse', 'industrial', 'church'].includes(b.t);
     let style;
-    if (home) style = H > 32 ? STYLE.RESI : STYLE.BRICK;
+    if (home) style = Hb > 32 ? STYLE.RESI : STYLE.BRICK;
     else if (work) style = r() < 0.75 ? STYLE.CURTAIN : STYLE.RIBBON;
     else if (shop) style = STYLE.BRICK;
-    else style = H > 45 ? (r() < 0.6 ? STYLE.CURTAIN : STYLE.RESI) : H < 15 ? STYLE.BRICK : (r() < 0.6 ? STYLE.CURTAIN : r() < 0.5 ? STYLE.RIBBON : STYLE.BRICK);
-    const gh = Math.min(H * 0.6, style === STYLE.RESI ? 4.6 : 5.4);
+    else style = Hb > 45 ? (r() < 0.6 ? STYLE.CURTAIN : STYLE.RESI) : Hb < 15 ? STYLE.BRICK : (r() < 0.6 ? STYLE.CURTAIN : r() < 0.5 ? STYLE.RIBBON : STYLE.BRICK);
+    const gh = Math.min(Hb * 0.6, style === STYLE.RESI ? 4.6 : 5.4);
     const o = {
       style, seed: r() * 50, groundH: gh, lit: style === STYLE.RESI ? 0.36 : 0.5, a: r() < 0.6 ? 1 : 0, b: r(),
       floorH: style === STYLE.CURTAIN ? 4.1 : style === STYLE.BRICK ? 3.9 : style === STYLE.RIBBON ? 4.6 : 3.05,
@@ -159,13 +203,15 @@ export async function initRealWorld(app, mapName = 'slu') {
       tint2: pick(ACCENTS),
     };
     const ring = b.p;
+    let lo = 1e9, hi = -1e9; for (const [x, z] of ring) { const y = H(x, z); lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    const base = lo - 0.4, top = hi + Hb;
     let door = null, doorLen = 0, cx = 0, cz = 0;
     for (let i = 0; i < ring.length; i++) {
       const p = ring[i], q = ring[(i + 1) % ring.length];
       cx += p[0]; cz += p[1];
       const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
       if (len < 0.3) continue;
-      g.wall(p[0], p[1], q[0], q[1], 0, H, o);
+      g.wall(p[0], p[1], q[0], q[1], base, top, o);
       segs.push({ ax: p[0], az: p[1], bx: q[0], bz: q[1] });
       // a door goes on the longest wall that faces a street
       if (len > 5 && len > doorLen) {
@@ -176,11 +222,11 @@ export async function initRealWorld(app, mapName = 'slu') {
     }
     try {
       const tris = THREE.ShapeUtils.triangulateShape(ring.map(([x, z]) => new THREE.Vector2(x, z)), []);
-      for (const [i0, i1, i2] of tris) g.tri(ring[i0], ring[i2], ring[i1], H, { style: STYLE.ROOF });
+      for (const [i0, i1, i2] of tris) g.tri(ring[i0], ring[i2], ring[i1], top, { style: STYLE.ROOF });
     } catch { /* a degenerate footprint: walls only */ }
     cx /= ring.length; cz /= ring.length;
-    if (H > 70) beacons.push([cx, H + 3, cz]);
-    if (b.n && door) lots.push({ name: b.n, door, type: 'office', district: 'slu', x0: cx, x1: cx, z0: cz, z1: cz, h: H });
+    if (Hb > 70) beacons.push([cx, top + 3, cz]);
+    if (b.n && door) lots.push({ name: b.n, door, type: 'office', district: 'slu', x0: cx, x1: cx, z0: cz, z1: cz, h: Hb });
   }
   // ================================================================ hero landmarks at their real addresses
   const boxSegs = (b, tf) => { const c = [[b.x0, b.z0], [b.x1, b.z0], [b.x1, b.z1], [b.x0, b.z1]].map(q => (tf ? tf(q[0], q[1]) : q)); for (let i = 0; i < 4; i++) segs.push({ ax: c[i][0], az: c[i][1], bx: c[(i + 1) % 4][0], bz: c[(i + 1) % 4][1] }); };
@@ -189,7 +235,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   if (pikeT) {
     const tc = [], to = [];
     const pike = createPikePlace(tc, to);
-    const pivot = new THREE.Group(); pivot.position.set(pikeT.origin[0], -PIKE.Y, pikeT.origin[1]); pivot.rotation.y = pikeT.th;
+    const pivot = new THREE.Group(); pivot.position.set(pikeT.origin[0], pikeY - PIKE.Y, pikeT.origin[1]); pivot.rotation.y = pikeT.th;
     const inner = new THREE.Group(); inner.position.set(440, 0, -704); inner.add(pike.group); pivot.add(inner); scene.add(pivot);
     glow.push(...pike.glow); updaters.push(() => pike.update(app.time));
     // the blocks behind the stalls and shops, rebuilt to fit the hand-made street
@@ -208,24 +254,30 @@ export async function initRealWorld(app, mapName = 'slu') {
     const bmap = bt('/assets/tex/brick_pavement_02_diff.jpg', true);
     const street = new THREE.Mesh(new THREE.PlaneGeometry(16, 276).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: bmap, normalMap: bt('/assets/tex/brick_pavement_02_nor.jpg', false), color: 0x8f8f8f, roughness: 0.3, emissiveMap: bmap, emissive: 0xffc890, emissiveIntensity: 0.3 }));
     street.position.set(-440, PIKE.Y + 0.1, 574); street.layers.set(1); inner.add(street);
+    const mk = createMarket(to, { core: true });
+    inner.add(mk.group); glow.push(...mk.glow); updaters.push(() => mk.update(app.time));
+    mk.group.remove(mk.far.points);
+    const bayY = 0.4, wheelAt = [-322, 1352];
+    mk.wheel.position.set(wheelAt[0], bayY + 4 + 26, wheelAt[1]); mk.wheel.rotation.y = pikeT.th + 0.2; scene.add(mk.wheel);
+    mk.pier.position.set(wheelAt[0] + 700, bayY - MARKET_Y, wheelAt[1] - 772); scene.add(mk.pier);
     for (const b of tc) boxSegs(b, pikeT.toWorld);
     for (const o of to) { const [x, z] = pikeT.toWorld(o.x, o.z); obstacles.push({ x, z, r: o.r }); }
-    const mv = (q) => { const [x, z] = pikeT.toWorld(q.x, q.z); const out = { ...q, x, z }; if (q.look) { const [lx, lz] = pikeT.toWorld(q.look[0], q.look[2]); out.look = [lx, q.look[1] - PIKE.Y, lz]; } if (q.from) { const [fx, fz] = pikeT.toWorld(q.from[0], q.from[2]); out.from = [fx, q.from[1] - PIKE.Y, fz]; } return out; };
+    const mv = (q) => { const [x, z] = pikeT.toWorld(q.x, q.z); const out = { ...q, x, z }; if (q.look) { const [lx, lz] = pikeT.toWorld(q.look[0], q.look[2]); out.look = [lx, q.look[1] - PIKE.Y + pikeY, lz]; } if (q.from) { const [fx, fz] = pikeT.toWorld(q.from[0], q.from[2]); out.from = [fx, q.from[1] - PIKE.Y + pikeY, fz]; } return out; };
     heroStops.push(...pike.stops.map(mv)); heroSources.push(...pike.sources.map(mv)); coffee = mv(pike.coffee);
     inSlow = (x, z) => { const [lx, lz] = pikeT.toLocal(x, z); return lx > PIKE.slow.x0 && lx < PIKE.slow.x1 && lz > PIKE.slow.z0 && lz < PIKE.slow.z1; };
   }
   if (needleAt) {
     const tc = [];
     const center = createCenter(tc, obstacles, { needle: needleAt, glass: glassAt, fountain: fountainAt, lamps: false, armory: false });
-    scene.add(center.group); glow.push(...center.glow); updaters.push(() => center.update(app.time, app.camera.position));
+    center.group.position.y = needleY; scene.add(center.group); glow.push(...center.glow); updaters.push(() => center.update(app.time, app.camera.position));
     for (const b of tc) boxSegs(b);
-    heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], 84, needleAt[1]], dist: 150, lift: -78 },
-      { name: 'Glass Garden', sub: 'Blown glass, lit from within', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], 3.5, glassAt[1]], dist: 26, lift: 0.5 });
+    heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], needleY + 84, needleAt[1]], dist: 150, lift: -78 },
+      { name: 'Glass Garden', sub: 'Blown glass, lit from within', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], needleY + 3.5, glassAt[1]], dist: 26, lift: 0.5 });
   }
   const mono = (data.monorail || []).slice().sort((a, b) => b.length - a.length)[0];
   if (mono) {
     const js = [...junctionR].map(([k, R]) => [...k.split(',').map(Number), R]);
-    const rail = createMonorail(obstacles, { pts: mono, inJunction: (x, z) => js.some(q => Math.hypot(q[0] - x, q[1] - z) < q[2] + 9) });
+    const rail = createMonorail(obstacles, { pts: mono, heightAt: H, inJunction: (x, z) => js.some(q => Math.hypot(q[0] - x, q[1] - z) < q[2] + 9) });
     scene.add(rail.group); updaters.push((dt) => rail.update(dt));
   }
 
@@ -258,20 +310,24 @@ export async function initRealWorld(app, mapName = 'slu') {
       const off = rd.hw + (isLamp ? 0.9 : 1.9), x = px + nx * side * off, z = pz + nz * side * off;
       if (x < B.x0 || x > B.x1 || z < B.z0 || z > B.z1 || inWater(x, z) || inBuilding(x, z) || inSet(x, z, -20)) continue;
       const other = nearRoad(x, z); if (other && other.rd !== rd && other.d < other.rd.hw + 0.5) continue;
-      if (isLamp) { sites.push({ x, z, y: -0.16, dirX: -nx * side, dirZ: -nz * side }); side = -side; }
-      else if (r() < 0.32) treeSpots.push([x, z, 0]);
+      if (isLamp) { sites.push({ x, z, y: H(x, z) - 0.16, dirX: -nx * side, dirZ: -nz * side }); side = -side; }
+      else if (r() < 0.32) treeSpots.push([x, z, H(x, z)]);
     }
   });
   const lamps = buildLamps(sites, obstacles); scene.add(lamps.group); glow.push(lamps.halo);
   const trees = buildTrees(treeSpots, obstacles); scene.add(trees.group); glow.push(trees.lights);
   // bake the lamp light into a top-down texture the ground reads
   const LT = 1024, lc = document.createElement('canvas'); lc.width = lc.height = LT;
-  const lx = lc.getContext('2d'); lx.fillStyle = '#000'; lx.fillRect(0, 0, LT, LT); lx.globalCompositeOperation = 'lighter';
+  const lx = lc.getContext('2d'); lx.fillStyle = '#000'; lx.fillRect(0, 0, LT, LT);
   const sx = LT / (B.x1 - B.x0), sz = LT / (B.z1 - B.z0);
+  // green channel: where the parks are
+  lx.fillStyle = 'rgb(0,255,0)';
+  for (const pk of data.parks) { if (pk.p.length < 3) continue; lx.beginPath(); pk.p.forEach(([x, z], i) => (i ? lx.lineTo((x - B.x0) * sx, (z - B.z0) * sz) : lx.moveTo((x - B.x0) * sx, (z - B.z0) * sz))); lx.fill(); }
+  lx.globalCompositeOperation = 'lighter';
   for (const s of sites) {
     const hx = (s.x + s.dirX * 2.15 - B.x0) * sx, hz = (s.z + s.dirZ * 2.15 - B.z0) * sz, rad = 19 * sx;
     const grad = lx.createRadialGradient(hx, hz, 0, hx, hz, rad);
-    grad.addColorStop(0, 'rgba(255,255,255,0.62)'); grad.addColorStop(0.35, 'rgba(255,255,255,0.22)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
+    grad.addColorStop(0, 'rgba(255,0,0,0.62)'); grad.addColorStop(0.35, 'rgba(255,0,0,0.22)'); grad.addColorStop(1, 'rgba(255,0,0,0)');
     lx.fillStyle = grad; lx.beginPath(); lx.ellipse(hx, hz, rad, 19 * sz, 0, 0, 7); lx.fill();
   }
   const lightTex = new THREE.CanvasTexture(lc); lightTex.flipY = false; lightTex.minFilter = THREE.LinearFilter; lightTex.generateMipmaps = false;
@@ -319,12 +375,124 @@ export async function initRealWorld(app, mapName = 'slu') {
     if (!a || a.d > a.rd.hw + 4) return a && a.d < 30 ? `Near ${a.rd.name || 'the street'}` : 'South Lake Union';
     let other = null;
     for (const s of rgrid.get(`${Math.floor(x / RC)},${Math.floor(z / RC)}`) || []) { const rd = roads[s.ri]; if (rd.name && rd.name !== a.rd.name && Math.hypot((s.ax + s.bx) / 2 - x, (s.az + s.bz) / 2 - z) < rd.hw + 9) { other = rd.name; break; } }
-    return other ? `${a.rd.name || 'Street'} & ${other}` : a.rd.name || 'Street';
+    return other && a.rd.name ? `${a.rd.name} & ${other}` : a.rd.name || other || 'Side street';
   };
   const nearestRoad = (x, z) => { const a = nearRoad(x, z, 4); if (!a) return { x: 0, z: 0, h: -Math.PI / 2 }; const h = Math.atan2(a.s.bz - a.s.az, a.s.bx - a.s.ax); return { x: a.x - Math.sin(h) * 1.8, z: a.z + Math.cos(h) * 1.8, h }; };
   const inBounds = (x, z) => x > B.x0 + 4 && x < B.x1 - 4 && z > B.z0 + 4 && z < B.z1 - 4 && !inWater(x, z);
   const districtOf = (x, z) => (pikeT && inSet(x, z, 40) ? 'pike' : needleAt && Math.hypot(x - needleAt[0], z - needleAt[1]) < 420 ? 'center' : z > 330 ? 'downtown' : z > 60 && x < -260 ? 'belltown' : 'slu');
-  setMapOverride({ inBounds, route, district: districtOf });
+  setMapOverride({ inBounds, route, district: districtOf, heightAt: H });
+  // keep the chase camera on the street side of walls: pull it in to the first wall between it and the van
+  const camClip = (from, to) => {
+    let best = 1; const dx = to.x - from.x, dz = to.z - from.z;
+    const seen = new Set();
+    for (let k = 0; k <= 3; k++) {
+      const key2 = `${Math.floor((from.x + dx * k / 3) / SC)},${Math.floor((from.z + dz * k / 3) / SC)}`; if (seen.has(key2)) continue; seen.add(key2);
+      for (const sg3 of segHash.get(key2) || []) {
+        const ex = sg3.bx - sg3.ax, ez = sg3.bz - sg3.az, den = dx * ez - dz * ex; if (Math.abs(den) < 1e-6) continue;
+        const t = ((sg3.ax - from.x) * ez - (sg3.az - from.z) * ex) / den, u = ((sg3.ax - from.x) * dz - (sg3.az - from.z) * dx) / den;
+        if (t > 0.02 && t < best && u >= 0 && u <= 1) best = t;
+      }
+    }
+    if (best < 1) { const t = Math.max(0.12, best - 0.08); to.x = from.x + dx * t; to.z = from.z + dz * t; }
+  };
+
+  // ================================================================ traffic signals where the bigger streets meet
+  const incidentRoads = new Map();
+  roads.forEach((rd) => rd.nodes.forEach((n) => { if (!incidentRoads.has(n.k)) incidentRoads.set(n.k, []); incidentRoads.get(n.k).push({ rd, i: n.i }); }));
+  const signalAt = new Map();      // junction key -> { axisX: boolean per approach is derived from heading }
+  {
+    const frame = [], lens = { a: { r: [], y: [], g: [] }, b: { r: [], y: [], g: [] } };
+    const head = (x, y, z, ry, set) => {
+      frame.push(new THREE.BoxGeometry(0.36, 1.08, 0.3).rotateY(ry).translate(x, y, z));
+      const fx = Math.sin(ry) * 0.16, fz = Math.cos(ry) * 0.16;
+      for (const [c, dy] of [['r', 0.34], ['y', 0], ['g', -0.34]]) set[c].push(new THREE.CircleGeometry(0.115, 10).rotateY(ry).translate(x + fx, y + dy, z + fz));
+    };
+    for (const [k, list] of incidentRoads) {
+      const big = list.filter(q => q.rd.w >= 11 && !q.rd.kind.endsWith('_link'));
+      if (big.length < 2 || new Set(big.map(q => q.rd.name)).size < 2) continue;
+      const [jx, jz] = k.split(',').map(Number), R = junctionR.get(k) || 7;
+      if (inSet(jx, jz, 10) || jx < B.x0 + 20 || jx > B.x1 - 20 || jz < B.z0 + 20 || jz > B.z1 - 20) continue;
+      signalAt.set(k, true);
+      for (const q of list) for (const dir of [-1, 1]) {
+        const j = q.i + dir; if (j < 0 || j >= q.rd.pts.length) continue;
+        // a pole on the near-right corner for traffic arriving along this arm
+        const ax = q.rd.pts[j][0] - jx, az = q.rd.pts[j][1] - jz, l = Math.hypot(ax, az) || 1, ux = ax / l, uz = az / l;
+        const px = jx + ux * (R + 1.5) + uz * (q.rd.hw + 0.9), pz = jz + uz * (R + 1.5) - ux * (q.rd.hw + 0.9), py = H(px, pz);
+        if (inBuilding(px, pz)) continue;
+        const ry = Math.atan2(ux, uz);       // lamp faces back down the arm, toward arriving traffic
+        frame.push(new THREE.CylinderGeometry(0.09, 0.13, 5.2, 7).translate(px, py + 2.6, pz));
+        head(px - uz * 0.35, py + 4.4, pz + ux * 0.35, ry, Math.abs(ux) > Math.abs(uz) ? lens.b : lens.a);
+        obstacles.push({ x: px, z: pz, r: 0.22 });
+      }
+    }
+    const flatG = (l) => mergeGeometries(l.map(q => { const n = q.index ? q.toNonIndexed() : q; n.deleteAttribute('uv'); return n; }));
+    if (frame.length) {
+      const fmesh = new THREE.Mesh(flatG(frame), darkMetal); fmesh.frustumCulled = false; scene.add(fmesh);
+      const COL = { r: [14, 0.5, 0.35], y: [12, 6.5, 0.5], g: [0.5, 11, 5.5] }, mats = {};
+      for (const d of ['a', 'b']) for (const c of ['r', 'y', 'g']) { const m = new THREE.MeshBasicMaterial({ color: 0 }); mats[d + c] = m; if (lens[d][c].length) { const me = new THREE.Mesh(flatG(lens[d][c]), m); me.frustumCulled = false; scene.add(me); } }
+      let last = -1;
+      updaters.push(() => {
+        const t = app.time % 24, ph = t < 10 ? 0 : t < 12 ? 1 : t < 22 ? 2 : 3; signalPhase = ph;
+        if (ph === last) return; last = ph;
+        const set = (d, on) => { for (const c of ['r', 'y', 'g']) { const kc = COL[c], f = c === on ? 1 : 0.012; mats[d + c].color.setRGB(kc[0] * f, kc[1] * f, kc[2] * f); } };
+        set('a', ph === 0 ? 'g' : ph === 1 ? 'y' : 'r'); set('b', ph === 2 ? 'g' : ph === 3 ? 'y' : 'r');
+      });
+    }
+  }
+  let signalPhase = 0;
+
+  // ================================================================ the streetcar on its real line
+  const tramLine = (data.tram || []).slice().sort((a, b) => b.length - a.length)[0];
+  const tram = { x: 1e5, z: 1e5, dir: 1, v: 0 };
+  if (tramLine && tramLine.length > 4) {
+    const car = createStreetcar(); scene.add(car.group);
+    const tv = [0]; for (let i = 1; i < tramLine.length; i++) tv.push(tv[i - 1] + Math.hypot(tramLine[i][0] - tramLine[i - 1][0], tramLine[i][1] - tramLine[i - 1][1]));
+    const total = tv[tv.length - 1], st = { s: total * 0.3, dir: 1, wait: 0, v: 0 }, bumpers = [-7, 0, 7].map(() => ({ x: 0, z: 0, r: 1.5 }));
+    obstacles.push(...bumpers);
+    updaters.push((dt) => {
+      if (st.wait > 0) { st.wait -= dt; st.v = Math.max(0, st.v - 5 * dt); }
+      else { const lead = st.dir > 0 ? total - 12 - st.s : st.s - 12; st.v += THREE.MathUtils.clamp(Math.min(9, Math.sqrt(Math.max(0, 2.6 * lead)) + 0.3) - st.v, -3 * dt, 1.5 * dt); st.s += st.dir * st.v * dt; if (lead < 0.5) { st.dir *= -1; st.wait = 6; } }
+      let i = 1; while (i < tramLine.length - 1 && tv[i] < st.s) i++;
+      const a = tramLine[i - 1], b = tramLine[i], t = (st.s - tv[i - 1]) / (tv[i] - tv[i - 1] || 1), h = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      const x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t;
+      car.group.position.set(x, H(x, z) + 0.12, z); car.group.rotation.y = -(st.dir > 0 ? h : h + Math.PI);
+      bumpers.forEach((o, n) => { const d = (n - 1) * 7; o.x = x + Math.cos(h) * d; o.z = z + Math.sin(h) * d; });
+      tram.x = x; tram.z = z; tram.v = st.v; tram.dir = st.dir;
+    });
+  }
+
+  // ================================================================ boats with lights at the wooden-boat docks
+  {
+    const cwb = data.buildings.find(b => /Center for Wooden Boats/.test(b.n));
+    if (cwb) {
+      const [bx, bz] = centreOf(cwb), lakeN = lakes.findIndex(ring => ring.length > 100), wy = lakeN >= 0 ? waterY[lakeN] : 0;
+      const hullShape = new THREE.Shape(); hullShape.moveTo(-5, 0); hullShape.quadraticCurveTo(-5.2, 1.3, -4.2, 1.4); hullShape.lineTo(3.2, 1.4); hullShape.quadraticCurveTo(5.4, 1.2, 6.2, 0); hullShape.quadraticCurveTo(2, -0.9, -5, 0);
+      const hullGeo = new THREE.ExtrudeGeometry(hullShape, { depth: 2.2, bevelEnabled: true, bevelSize: 0.5, bevelThickness: 0.6, bevelSegments: 3 }).translate(0, 0, -1.1).rotateY(-Math.PI / 2);
+      const hullMat = new THREE.MeshPhysicalMaterial({ color: 0x1c2d3d, roughness: 0.35, clearcoat: 0.8 });
+      const lp = [], lcol = [], ls = [], lph = [], masts = [];
+      let placed = 0;
+      for (let n = 0; n < 80 && placed < 12; n++) {
+        const x = bx + (r() - 0.5) * 220, z = bz + (r() - 0.5) * 160;
+        if (!inWater(x, z) || inBuilding(x, z) || !inWater(x + 7, z) || !inWater(x - 7, z) || !inWater(x, z + 7) || !inWater(x, z - 7)) continue;
+        placed++;
+        const ry = r() * 6.28, sc = 0.8 + r() * 0.6, mh = 9 + r() * 6;
+        const hull = new THREE.Mesh(hullGeo, hullMat); hull.position.set(x, wy - 0.25, z); hull.rotation.y = ry; hull.scale.setScalar(sc); scene.add(hull);
+        masts.push(new THREE.CylinderGeometry(0.06, 0.09, mh * sc, 6).translate(x, wy + 1.2 + mh * sc / 2, z));
+        const col = [[1.0, 0.72, 0.36], [0.4, 0.8, 1.0], [1.0, 0.3, 0.35], [0.4, 1.0, 0.6]][placed % 4];
+        for (const end of [6, -5]) for (let k = 0; k <= 14; k++) { const t = k / 14, lxp = x + Math.sin(ry) * end * sc * (1 - t), lzp = z + Math.cos(ry) * end * sc * (1 - t); lp.push(lxp, wy + 1.4 + mh * sc * t - Math.sin(t * Math.PI) * 0.5, lzp); lcol.push(col[0] * 3, col[1] * 3, col[2] * 3); ls.push(0.16); lph.push(r()); }
+      }
+      if (masts.length) { scene.add(new THREE.Mesh(mergeGeometries(masts), darkMetal)); const bl = createGlowPoints(lp, lcol, ls, lph, { twinkle: 0.2 }); scene.add(bl.points); glow.push(bl); }
+    }
+  }
+
+  // ================================================================ the holiday tree in Westlake Park
+  {
+    const wp = data.parks.find(q => /Westlake Park/.test(q.n));
+    const at = wp ? centreOf(wp) : [71, 799];
+    const retail = createRetailCore(obstacles, [], { tree: at });
+    scene.add(retail.group); glow.push(...retail.glow);
+    heroStops.push({ name: 'Westlake Park', sub: 'The holiday tree at the heart of the retail core', x: at[0] + 16, z: at[1] + 14, look: [at[0], H(at[0], at[1]) + 9, at[1]], dist: 30, lift: -4 });
+  }
 
   const start0 = [-17, -70];
   // ================================================================ traffic: a bubble of cars around the van
@@ -343,7 +511,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   for (let n = 0; n < NCAR; n++) { const c = { kind: n % CAR_KINDS, color: CAR_COLORS[Math.floor(r() * CAR_COLORS.length)], cruise: 8 + r() * 3.5, x: 0, z: 0, h: 0, y: 0, v: 6, near: null, collider: { x0: 0, x1: 0, z0: 0, z1: 0, low: true, moving: true } }; place(c, start0[0], start0[1], true); cars.push(c); colliders.push(c.collider); }
   const sets = Array.from({ length: CAR_KINDS }, (_, k) => { const list = cars.filter(c => c.kind === k), set = makeCarSet(k, list.length, true, true), C0 = new THREE.Color(); list.forEach((c, n) => { set.body.setColorAt(n, C0.setHex(c.color)); set.tail.setColorAt(n, C0.setRGB(3, 0.08, 0.05)); }); carGroup.add(...set.all); return { list, set }; });
   scene.add(carGroup);
-  const CM = new THREE.Matrix4(), CQ = new THREE.Quaternion(), CV = new THREE.Vector3(), CS = new THREE.Vector3(1, 1, 1), CUP = new THREE.Vector3(0, 1, 0), tevents = [];
+  const CM = new THREE.Matrix4(), CQ = new THREE.Quaternion(), CV = new THREE.Vector3(), CS = new THREE.Vector3(1, 1, 1), CUP = new THREE.Vector3(0, 1, 0), CZA = new THREE.Vector3(0, 0, 1), CQ2 = new THREE.Quaternion(), tevents = [];
   const trafficUpdate = (dt, van) => {
     tevents.length = 0;
     for (const c of cars) {
@@ -352,6 +520,12 @@ export async function initRealWorld(app, mapName = 'slu') {
       // the junction ahead on this road
       let ahead = null; for (const n of c.rd.nodes) { const d = (c.rd.v[n.i] - c.s) * c.dir; if (d > 0.01 && (!ahead || d < ahead.d)) ahead = { n, d }; }
       let target = c.cruise; if (ahead && ahead.d < 16) target = Math.min(target, 3.5 + ahead.d * 0.45);
+      if (ahead && ahead.d < 40 && signalAt.has(ahead.n.k)) {
+        // green for east-west arms in phase 2, for north-south arms in phase 0; stop at the line otherwise
+        const ew = Math.abs(Math.cos(c.h)) > Math.abs(Math.sin(c.h)), go = ew ? signalPhase === 2 : signalPhase === 0;
+        const stopD = ahead.d - (junctionR.get(ahead.n.k) || 7) - 6;
+        if (!go && stopD > -2) target = Math.min(target, Math.sqrt(Math.max(0, 2 * 4.5 * (stopD - 0.3))));
+      }
       const fx = Math.cos(c.h), fz = Math.sin(c.h);
       let gap = 1e9;
       for (const o of cars) { if (o === c) continue; const rx = o.x - c.x, rz = o.z - c.z, a = rx * fx + rz * fz; if (a > 0 && a < 30 && Math.abs(-rx * fz + rz * fx) < 1.9) gap = Math.min(gap, a - 5.2); }
@@ -387,7 +561,7 @@ export async function initRealWorld(app, mapName = 'slu') {
       if (c.near && van.impact > 0.05) c.near.hit = true;
     }
     const C1 = new THREE.Color();
-    for (const st of sets) { st.list.forEach((c, n) => { CQ.setFromAxisAngle(CUP, -c.h); CM.compose(CV.set(c.x, 0.03, c.z), CQ, CS); st.set.setMatrixAt(n, CM); st.set.tail.setColorAt(n, c.braking ? C1.setRGB(14, 0.35, 0.2) : C1.setRGB(3.2, 0.08, 0.05)); }); st.set.commit(); if (st.set.tail.instanceColor) st.set.tail.instanceColor.needsUpdate = true; }
+    for (const st of sets) { st.list.forEach((c, n) => { const kx = Math.cos(c.h), kz = Math.sin(c.h); c.y = H(c.x, c.z) + 0.1; CQ.setFromAxisAngle(CUP, -c.h); CQ.multiply(CQ2.setFromAxisAngle(CZA, Math.atan((H(c.x + kx * 1.4, c.z + kz * 1.4) - H(c.x - kx * 1.4, c.z - kz * 1.4)) / 2.8))); CM.compose(CV.set(c.x, c.y, c.z), CQ, CS); st.set.setMatrixAt(n, CM); st.set.tail.setColorAt(n, c.braking ? C1.setRGB(14, 0.35, 0.2) : C1.setRGB(3.2, 0.08, 0.05)); }); st.set.commit(); if (st.set.tail.instanceColor) st.set.tail.instanceColor.needsUpdate = true; }
     return tevents;
   };
   const bump = (x, z) => { let best = null, bd = 5.5; for (const c of cars) { const d = Math.hypot(c.x - x, c.z - z); if (d < bd) { bd = d; best = c; } } if (best) { best.stun = 1.6; best.v = 0; if (best.near) best.near.hit = true; } return best; };
@@ -401,7 +575,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     if (len < 50) continue;
     pedPaths.push({ pts: [...side(1), ...side(-1).reverse()], w: len });
   }
-  const peds = createPedestrians(520, { paths: pedPaths, y: 0 }); scene.add(peds.group);
+  const peds = createPedestrians(520, { paths: pedPaths, y: (x, z) => H(x, z) + 0.05 }); scene.add(peds.group);
 
   // ================================================================ what the game needs to know
   const startRoad = roads.filter(rd => rd.name === 'Westlake Avenue North').map(rd => rd.pts[Math.floor(rd.pts.length / 2)]).sort((p, q) => Math.hypot(p[0] + 17, p[1] + 70) - Math.hypot(q[0] + 17, q[1] + 70))[0] || [0, 0];
@@ -428,7 +602,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   // a few real lights that follow the van between the nearest lamps
   const pool = [];
   for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffb066, 0, 26, 1.6); scene.add(l); pool.push(l); }
-  const heads = sites.map(s => new THREE.Vector3(s.x + s.dirX * 2.15, 8.1, s.z + s.dirZ * 2.15)), tmp = [];
+  const heads = sites.map(s => new THREE.Vector3(s.x + s.dirX * 2.15, s.y + 8.26, s.z + s.dirZ * 2.15)), tmp = [];
   const updateLampPool = (f) => {
     tmp.length = 0;
     for (const h of heads) { const dx = h.x - f.x, dz = h.z - f.z; if (dx > 30 || dx < -30 || dz > 30 || dz < -30) continue; tmp.push([dx * dx + dz * dz, h]); }
@@ -445,8 +619,8 @@ export async function initRealWorld(app, mapName = 'slu') {
 
   const far = { x: 1e5, z: 1e5 };
   app.world = {
-    real: true, colliders, obstacles, segHash, segCell: SC, rain, updateLampPool,
-    buildings: { lots }, streetcar: { state: { x: 1e5, z: 1e5, dir: 1, v: 0 } },
+    real: true, colliders, obstacles, segHash, segCell: SC, rain, updateLampPool, camClip, heightAt: H,
+    buildings: { lots }, streetcar: { state: tram },
     traffic: { cars, update: trafficUpdate, bump }, peds,
     pike: { sources: [], stops: [], coffee }, inSlow,
     start, pois, sources, stops: heroStops, coffeeSpots, streetName, nearestRoad, drawMap, credit: data.credit,

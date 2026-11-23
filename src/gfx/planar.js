@@ -6,6 +6,9 @@ export class PlanarReflection {
   constructor(renderer, scale = 0.5) {
     this.scale = scale;
     this.planeY = 0;
+    this.tilted = false;                      // when true, the plane is given by normal + point
+    this.normal = new THREE.Vector3(0, 1, 0);
+    this.point = new THREE.Vector3();
     this.camera = new THREE.PerspectiveCamera();
     this.textureMatrix = new THREE.Matrix4();
     this.rt = new THREE.WebGLRenderTarget(4, 4, {
@@ -32,7 +35,9 @@ export class PlanarReflection {
     const { plane, normal, pp, cam, rot, look, view, target, clip, q } = this._v;
     const vc = this.camera;
     cam.setFromMatrixPosition(camera.matrixWorld);
-    pp.set(cam.x, this.planeY, cam.z);
+    if (!this.tilted) { this.normal.set(0, 1, 0); this.point.set(0, this.planeY, 0); }
+    normal.copy(this.normal);
+    pp.copy(cam).addScaledVector(normal, -normal.dot(view.subVectors(cam, this.point)));
     view.subVectors(pp, cam);
     if (view.dot(normal) > 0) return;
     view.reflect(normal).negate().add(pp);

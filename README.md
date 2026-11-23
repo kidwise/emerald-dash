@@ -12,12 +12,13 @@ The map is one continuous world; a shift just picks which district its jobs are 
 
 ## Two maps
 
-- **The hand-built city** (default): a compressed, regular street grid with every game feature: hills, streetcar,
-  monorail, all landmarks.
-- **The real map** (`?map=real`, linked from the title screen): true-scale streets, building footprints and shoreline
-  baked from OpenStreetMap, from Lake Union to Pike Place and Seattle Center. Pike Place Market and the Space Needle
-  are placed at their real addresses, with traffic and pedestrians. Still a preview: the ground is flat, and the
-  streetcar, signals and most other landmarks are not there yet.
+- **The real map** (default): true-scale streets, building footprints, hills and shoreline baked from OpenStreetMap
+  and public elevation data, from Lake Union to Pike Place and Seattle Center. Pike Place Market, the Space Needle,
+  the glass garden, the monorail, the streetcar and the Westlake Park tree stand at their real positions, with
+  traffic, signals and pedestrians.
+- **The hand-built arcade city** (`?map=grid`, linked from the title screen): a compressed, regular street grid.
+  It still has a few things the real map lacks: jobs that land a parcel on the streetcar or a dock, the MOHAI
+  model, and stepped hills tuned for big jumps.
 
 Play is one continuous city in both: jobs are dispatched near wherever you drive, or choose Explore for no clock.
 Stop beside a landmark for a close look; Pike Place Market is walking pace, and its shops hand over cargo with
@@ -97,12 +98,14 @@ node tools/hill.mjs                                # district starts and a fast 
 node tools/life.mjs                                # pedestrian and traffic close-ups, traffic-flow statistics
 node tools/scare.mjs                               # charges a pedestrian to check they dodge
 node tools/weather.mjs                             # the clear-evening toggle
-node tools/soak.mjs "" 60 downtown                 # 60 s of random driving and crashes in a district
+node tools/soak.mjs "" 60                          # 60 s of random driving and crashes (add map=grid for the arcade city)
 node tools/market.mjs                              # Pike Place: slow zone, postcards, shop cargo
 node tools/realmap.mjs                             # real map: drive, walls, traffic, a delivery
 node tools/realheroes.mjs                          # real map: photograph each landmark in place
 node tools/fetch-assets.mjs                        # re-download the CC0 textures
 node tools/bake-map.mjs city                       # rebuild the real map from raw OpenStreetMap data
+node tools/bake-dem.mjs city                       # rebuild its ground heights from public elevation tiles
+node tools/realhill.mjs                            # real map: drive down the steepest street
 ```
 
 ## Not a survey map

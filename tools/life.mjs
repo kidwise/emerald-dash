@@ -5,7 +5,7 @@ const browser = await puppeteer.launch({ executablePath: '/Applications/Google C
 const page = await browser.newPage();
 page.on('pageerror', e => console.log('pageerror:', String(e).slice(0, 400)));
 page.on('console', m => { if (m.type() === 'error') console.log('console error', m.text().slice(0, 300)); });
-await page.goto('http://localhost:5173/?cam=0,3,0,0,3,-10', { waitUntil: 'load' });
+await page.goto('http://localhost:5173/?map=grid&cam=0,3,0,0,3,-10', { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true && window.__app.game', { timeout: 30000 });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 document: await page.evaluate(() => { document.getElementById('hud').style.display = 'none'; });

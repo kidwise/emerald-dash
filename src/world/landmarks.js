@@ -12,13 +12,13 @@ const box = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y,
 export function createLake(reflection, o = {}) {
   const uniforms = {
     tReflect: { value: reflection.rt.texture }, uReflectMatrix: { value: reflection.textureMatrix },
-    uTime: { value: 0 }, uPlanar: { value: o.planar ?? 1 }, uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) }, uFogDensity: { value: FOG_DENSITY },
+    uTime: { value: 0 }, uPlanar: { value: o.planar ?? 1 }, uMirrorY: { value: 0 }, uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) }, uFogDensity: { value: FOG_DENSITY },
   };
   const mat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */`varying vec3 vWPos; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vWPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
     fragmentShader: /* glsl */`
-      uniform sampler2D tReflect; uniform mat4 uReflectMatrix; uniform float uTime; uniform float uPlanar; uniform vec3 uFogColor; uniform float uFogDensity;
+      uniform sampler2D tReflect; uniform mat4 uReflectMatrix; uniform float uTime; uniform float uPlanar; uniform float uMirrorY; uniform vec3 uFogColor; uniform float uFogDensity;
       varying vec3 vWPos;
       ${GLSL_NOISE}
       ${GLSL_SKY}
@@ -32,7 +32,7 @@ export function createLake(reflection, o = {}) {
         vec3 N = normalize(vec3(-(hx - h0) / e * amp, 1.0, -(hz - h0) / e * amp));
         float NdV = clamp(dot(N, V), 0.0, 1.0);
         float fres = 0.03 + 0.97 * pow(1.0 - NdV, 5.0);
-        vec4 rc = uReflectMatrix * vec4(vWPos.x, 0.0, vWPos.z, 1.0);
+        vec4 rc = uReflectMatrix * vec4(vWPos.x, uMirrorY, vWPos.z, 1.0);
         vec2 ruv = rc.xy / rc.w + N.xz * vec2(0.10, 0.22);
         vec3 refl = vec3(0.0);
         for (int i = -2; i <= 2; i++) refl += min(textureLod(tReflect, ruv + vec2(0.0, float(i) * 0.012), 1.5).rgb, vec3(48.0));

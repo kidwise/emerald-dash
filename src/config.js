@@ -64,7 +64,7 @@ export function hillF(x) {
 // A different map (the real-data one) can replace these answers wholesale.
 let OVERRIDE = null;
 export function setMapOverride(o) { OVERRIDE = o; }
-export const heightAt = (x, z) => (OVERRIDE ? 0 : z > HILL_Z ? hillF(x) : 0);
+export const heightAt = (x, z) => (OVERRIDE ? (OVERRIDE.heightAt ? OVERRIDE.heightAt(x, z) : 0) : z > HILL_Z ? hillF(x) : 0);
 
 export const avenueAt = (a, z) => z > a.z0 && z < a.z1;
 export const streetAt = (s, x) => x > s.x0 && x < s.x1;

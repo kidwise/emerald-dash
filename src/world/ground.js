@@ -28,6 +28,7 @@ varying vec2 vUv;
 uniform mat4 uReflectMatrix;
 uniform float uTime;
 uniform float uPlaneY;
+uniform vec4 uPlane;
 uniform float uRain;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
@@ -104,7 +105,7 @@ void main(){
   for (int j = 0; j < N_ST; j++) { if (p.x < STX0[j] || p.x > STX1[j]) continue; float c = p.y - STZ[j]; float d = abs(c) - STHW[j]; if (d < stD) { stD = d; stC = c; stHW = STHW[j]; stI = j; } }
   // water runs off the hills: standing puddles only on level ground
 #ifdef REALMAP
-  float level = 1.0;
+  float level = smoothstep(0.9900, 0.9985, vN.y);
 #else
   float level = 1.0 - smoothstep(0.02, 0.07, abs(terrainH(p + vec2(1.0, 0.0)) - terrainH(p - vec2(1.0, 0.0))) * 0.5);
 #endif
@@ -198,6 +199,11 @@ void main(){
     albedo *= (1.0 - 0.45 * joint4) * (1.0 - 0.25 * smoothstep(0.75, 0.9, vnoise(p * 2.3)));
     puddle = smoothstep(0.60, 0.68, nLow + 0.05 * nMid);
     rough = mix(0.30, 0.03, puddle); bump = mix(0.35, 0.0, puddle); reflK = mix(0.42, 0.95, puddle);
+#ifdef REALMAP
+    float park = texture2D(tLight, (p - uLightRect.xy) / uLightRect.zw).g;
+    vec3 grass4 = vec3(0.020, 0.050, 0.018) * (0.6 + 0.9 * nLow) * (0.8 + 0.4 * vnoise(p * 7.0));
+    albedo = mix(albedo, grass4, park); puddle *= 1.0 - park; rough = mix(rough, 0.95, park); reflK *= 1.0 - park; bump = mix(bump, 0.9, park);
+#endif
   }
 #elif MODE == 5
   // ---------------- grass
@@ -251,7 +257,7 @@ void main(){
   vec2 grad2 = vec2(mx - m0, mz - m0);
   vec2 rip = ripple(p, uTime) * puddle * 0.05 * smoothstep(70.0, 12.0, dist) * uRain;
   vec2 tilt = (grad * 0.26 + grad2 * 0.10) * bump + rip + extraTilt;
-  if (vN.y > 0.5) N = normalize(vec3(-tilt.x, 1.0, -tilt.y));
+  if (vN.y > 0.5) N = normalize(normalize(vN) + vec3(-tilt.x, 0.0, -tilt.y));
 
   // ---------------- lighting ----------------
   vec3 light = uAmbient;
@@ -300,8 +306,9 @@ void main(){
   // ---------------- mirror-like wet reflection ----------------
   float NdV = clamp(dot(N, V), 0.0, 1.0);
   float fres = 0.035 + 0.965 * pow(1.0 - NdV, 5.0);
-  vec4 rc = uReflectMatrix * vec4(P.x, uPlaneY, P.z, 1.0);
-  vec2 ruv = rc.xy / rc.w + N.xz * 0.07;
+  float pd = dot(uPlane.xyz, P) + uPlane.w;
+  vec4 rc = uReflectMatrix * vec4(P - uPlane.xyz * pd, 1.0);
+  vec2 ruv = rc.xy / rc.w - tilt * 0.07;
   float lod = rough * 9.0;
   vec3 refl = vec3(0.0); float wsum = 0.0;
   for (int i = -3; i <= 3; i++) {
@@ -311,7 +318,7 @@ void main(){
   }
   refl /= wsum;
   // the mirror image is only valid on ground level with the mirror plane; elsewhere reflect the sky
-  float onPlane = 1.0 - smoothstep(0.45, 0.9, abs(P.y - uPlaneY));
+  float onPlane = 1.0 - smoothstep(0.45, 0.9, abs(pd));
   vec3 Rv = reflect(-V, N);
   vec3 skyR = skyColor(normalize(vec3(Rv.x, abs(Rv.y) + 0.03, Rv.z)), uTime) * 1.5 + LAMP_COLOR * lampSum(P + vec3(Rv.x, 0.0, Rv.z) * 9.0) * 0.5;
   refl = mix(skyR, refl, onPlane);
@@ -359,7 +366,7 @@ export function createGround(reflection, opts = {}) {
   const shared = {
     tReflect: { value: reflection.rt.texture },
     uReflectMatrix: { value: reflection.textureMatrix },
-    uTime: { value: 0 }, uPlaneY: { value: 0 }, uRain: { value: 1 },
+    uTime: { value: 0 }, uPlaneY: { value: 0 }, uPlane: { value: new THREE.Vector4(0, 1, 0, 0) }, uRain: { value: 1 },
     tLight: { value: null }, uLightRect: { value: new THREE.Vector4(0, 0, 1, 1) },
     tBrick: { value: loadTex('/assets/tex/brick_pavement_02_diff.jpg', true) }, tBrickN: { value: loadTex('/assets/tex/brick_pavement_02_nor.jpg', false) },
     uFogColor: { value: new THREE.Color().fromArray(FOG_COLOR) },

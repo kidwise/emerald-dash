@@ -5,7 +5,7 @@ const browser = await puppeteer.launch({ executablePath: '/Applications/Google C
 const page = await browser.newPage();
 page.on('pageerror', e => console.log('pageerror:', String(e).slice(0, 500)));
 page.on('console', m => { if (m.type() === 'error') console.log('console error', m.text().slice(0, 400)); });
-await page.goto('http://localhost:5173/?map=real', { waitUntil: 'load' });
+await page.goto('http://localhost:5173/', { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true && window.__app.game', { timeout: 40000 });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const st = () => page.evaluate(() => { const g = window.__app.game, v = g.van; return { x: +v.pos.x.toFixed(0), z: +v.pos.z.toFixed(0), mph: Math.round(v.speed * 2.237), street: document.querySelector('.hud-street span').textContent, jobs: g.targets.filter(t => !t.done).map(t => t.name).join(' | '), cars: window.__app.world.traffic.cars.filter(c => Math.hypot(c.x - v.pos.x, c.z - v.pos.z) < 300).length, fps: window.__info().fps, calls: window.__info().calls }; });

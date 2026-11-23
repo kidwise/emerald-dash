@@ -505,7 +505,7 @@ export function initGame(app) {
   }
 
   // ---------------------------------------------------------------- camera
-  const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), lookSm = new THREE.Vector3();
+  const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), lookSm = new THREE.Vector3(), tmp2 = new THREE.Vector3();
   const prevCam = new THREE.Vector3(), camVel = new THREE.Vector3();
   function chaseCamera(dt, snap) {
     const sp = van.speed;
@@ -520,6 +520,8 @@ export function initGame(app) {
         if (m === l) camPos.x = b.x0 - 0.8; else if (m === r) camPos.x = b.x1 + 0.8; else if (m === t) camPos.z = b.z0 - 0.8; else camPos.z = b.z1 + 0.8;
       }
     }
+    if (world.camClip) world.camClip(tmp2.set(van.pos.x, van.y + 2.2, van.pos.z), camPos);
+    camPos.y = Math.max(camPos.y, heightAt(camPos.x, camPos.z) + 1.4);
     const k = snap ? 1 : 1 - Math.exp(-dt * 9);
     camera.position.lerp(camPos, k);
     camLook.set(van.pos.x + Math.cos(van.heading) * (4.5 + sp * 0.12), van.y + 1.7, van.pos.z + Math.sin(van.heading) * (4.5 + sp * 0.12));
@@ -830,7 +832,14 @@ export function initGame(app) {
     pUni.uScale.value = renderer.domElement.height * camera.projectionMatrix.elements[5] * 0.5;
     world.updateLampPool(van.pos);
     // the wet-street mirror sits at whatever level the van is on
-    app.reflection.planeY = heightAt(van.pos.x, van.pos.z); ground.uniforms.uPlaneY.value = app.reflection.planeY;
+    const R = app.reflection, gyv = heightAt(van.pos.x, van.pos.z);
+    if (REAL) {
+      // lay the mirror along the street the van is on
+      const e = 6, nx = -(heightAt(van.pos.x + e, van.pos.z) - heightAt(van.pos.x - e, van.pos.z)) / (2 * e), nz = -(heightAt(van.pos.x, van.pos.z + e) - heightAt(van.pos.x, van.pos.z - e)) / (2 * e);
+      tmp.set(nx, 1, nz).normalize();
+      R.tilted = true; R.normal.lerp(tmp, Math.min(1, dt * 4)).normalize(); R.point.set(van.pos.x, gyv + 0.08, van.pos.z);
+    } else { R.planeY = gyv; R.normal.set(0, 1, 0); R.point.set(0, gyv, 0); }
+    ground.uniforms.uPlane.value.set(R.normal.x, R.normal.y, R.normal.z, -R.normal.dot(R.point));
     updateCube();
 
     rUni.uTime.value = app.time; routeT -= dt;

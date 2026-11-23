@@ -17,3 +17,6 @@ with stand-ins before publishing the game publicly.
 `city.json` and `slu.json` are baked from OpenStreetMap by `tools/bake-map.mjs`.
 Map data © OpenStreetMap contributors, available under the Open Database License (ODbL):
 https://www.openstreetmap.org/copyright. Keep this credit visible wherever the real-map mode is shown.
+
+`city-height.json` is baked by `tools/bake-dem.mjs` from the Mapzen/AWS Terrain Tiles open dataset
+(https://registry.opendata.aws/terrain-tiles/), which in this area derives from USGS 3DEP elevation data.

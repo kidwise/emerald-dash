@@ -5,7 +5,7 @@ const browser = await puppeteer.launch({ executablePath: '/Applications/Google C
 const page = await browser.newPage();
 page.on('pageerror', e => console.log('pageerror:', String(e).slice(0, 500)));
 page.on('console', m => { if (m.type() === 'error') console.log('console error', m.text().slice(0, 400)); });
-await page.goto('http://localhost:5173/?map=real', { waitUntil: 'load' });
+await page.goto('http://localhost:5173/', { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true && window.__app.game', { timeout: 60000 });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 await page.keyboard.press('KeyE'); await sleep(500);

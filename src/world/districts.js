@@ -33,6 +33,7 @@ function signPlane(tex, w, h, x, y, z, ry, k = 2.3) {
 // ---------------------------------------------------------------- monorail
 export function createMonorail(obstacles, custom = null) {
   const group = new THREE.Group();
+  const gy = (custom && custom.heightAt) || (() => 0);
   const BEAM_Y = 9.2, X5 = -88, ZD = DENNY.z, R = 34;
   // centre line: north up 5th Ave, a sweeping left onto Denny Way, west to Seattle Center
   const pts = [new THREE.Vector2(X5, 606), new THREE.Vector2(X5, ZD + R)];
@@ -56,7 +57,9 @@ export function createMonorail(obstacles, custom = null) {
     const a = pts[i - 1], b = pts[i], len = a.distanceTo(b), h = Math.atan2(b.y - a.y, b.x - a.x);
     for (const off of [-1.55, 1.55]) {
       const g = new THREE.BoxGeometry(len + 0.3, 1.25, 0.75).rotateY(-h);
-      g.translate((a.x + b.x) / 2 - Math.sin(h) * off, BEAM_Y, (a.y + b.y) / 2 + Math.cos(h) * off);
+      const ya = gy(a.x, a.y), yb = gy(b.x, b.y);
+      g.rotateY(h).rotateZ(Math.atan2(yb - ya, len)).rotateY(-h);
+      g.translate((a.x + b.x) / 2 - Math.sin(h) * off, BEAM_Y + (ya + yb) / 2, (a.y + b.y) / 2 + Math.cos(h) * off);
       geos.push(g);
     }
   }
@@ -66,8 +69,9 @@ export function createMonorail(obstacles, custom = null) {
   for (let s = 10; s < total - 6; s += 24) {
     at(s, P);
     if (inJunction(P.x, P.z)) continue;
-    geos.push(new THREE.BoxGeometry(1.15, BEAM_Y - 0.6, 1.15).rotateY(-P.h).translate(P.x, (BEAM_Y - 0.6) / 2, P.z));
-    geos.push(new THREE.BoxGeometry(1.3, 0.9, 4.6).rotateY(-P.h).translate(P.x, BEAM_Y - 1.0, P.z));
+    const py = gy(P.x, P.z);
+    geos.push(new THREE.BoxGeometry(1.15, BEAM_Y + 1.4, 1.15).rotateY(-P.h).translate(P.x, py + (BEAM_Y - 0.6) / 2 - 1, P.z));
+    geos.push(new THREE.BoxGeometry(1.3, 0.9, 4.6).rotateY(-P.h).translate(P.x, py + BEAM_Y - 1.0, P.z));
     obstacles.push({ x: P.x, z: P.z, r: 0.75 });
   }
   // stations: a canopy at each end
@@ -116,7 +120,7 @@ export function createMonorail(obstacles, custom = null) {
     cars.forEach((c, i) => {
       at(state.s - state.dir * i * 10.9, P);
       const h = state.dir > 0 ? P.h : P.h + Math.PI;
-      c.position.set(P.x - Math.sin(P.h) * 1.55, BEAM_Y + 0.75, P.z + Math.cos(P.h) * 1.55);
+      c.position.set(P.x - Math.sin(P.h) * 1.55, gy(P.x, P.z) + BEAM_Y + 0.75, P.z + Math.cos(P.h) * 1.55);
       c.rotation.y = -h;
     });
   };
@@ -125,7 +129,7 @@ export function createMonorail(obstacles, custom = null) {
 }
 
 // ---------------------------------------------------------------- Pike Place Market, the bay and the Great Wheel
-export function createMarket(obstacles) {
+export function createMarket(obstacles, P = {}) {
   const group = new THREE.Group();
   const r = rng(1907);
   const Y = MARKET_Y + CURB;
@@ -145,11 +149,11 @@ export function createMarket(obstacles) {
   group.add(clock, hands);
   // awnings over the stalls and a railing along the bluff
   const awn = [];
-  for (let z = MARKET.z0 + 180; z < MARKET.z1 - 6; z += 6.2) awn.push(new THREE.BoxGeometry(2.6, 0.12, 5.4).rotateZ(-0.32).translate(MARKET.x1 - 1.4, MARKET_Y + 4.3, z));
-  group.add(new THREE.Mesh(merge(awn), new THREE.MeshStandardMaterial({ color: 0x1f5a36, roughness: 0.6, emissive: 0x0c2414, emissiveIntensity: 1.2 })));
-  for (let z = MARKET.z0; z <= MARKET.z1; z += 3) geos.push(box(0.1, 1.1, 0.1, MARKET.x0 + 0.6, Y + 0.55, z));
-  geos.push(box(0.12, 0.08, MARKET.z1 - MARKET.z0, MARKET.x0 + 0.6, Y + 1.12, (MARKET.z0 + MARKET.z1) / 2));
-  geos.push(box(3, 14, MARKET.z1 - MARKET.z0 + 40, MARKET.x0 - 1.5, MARKET_Y - 6.9, (MARKET.z0 + MARKET.z1) / 2));   // sea wall
+  for (let z = P.core ? 1e9 : MARKET.z0 + 180; z < MARKET.z1 - 6; z += 6.2) awn.push(new THREE.BoxGeometry(2.6, 0.12, 5.4).rotateZ(-0.32).translate(MARKET.x1 - 1.4, MARKET_Y + 4.3, z));
+  if (awn.length) group.add(new THREE.Mesh(merge(awn), new THREE.MeshStandardMaterial({ color: 0x1f5a36, roughness: 0.6, emissive: 0x0c2414, emissiveIntensity: 1.2 })));
+  for (let z = P.core ? 1e9 : MARKET.z0; z <= MARKET.z1; z += 3) geos.push(box(0.1, 1.1, 0.1, MARKET.x0 + 0.6, Y + 0.55, z));
+  if (!P.core) geos.push(box(0.12, 0.08, MARKET.z1 - MARKET.z0, MARKET.x0 + 0.6, Y + 1.12, (MARKET.z0 + MARKET.z1) / 2));
+  if (!P.core) geos.push(box(3, 14, MARKET.z1 - MARKET.z0 + 40, MARKET.x0 - 1.5, MARKET_Y - 6.9, (MARKET.z0 + MARKET.z1) / 2));   // sea wall
   group.add(new THREE.Mesh(merge(geos), darkMetal));
 
   // Rachel, the market's bronze pig
@@ -170,12 +174,12 @@ export function createMarket(obstacles) {
   // festoon lights strung along the stalls and across the deck
   const p = [], c = [], s = [], ph = [];
   const pal = [[1.0, 0.72, 0.36], [1.0, 0.3, 0.25], [0.3, 1.0, 0.5], [0.35, 0.6, 1.0], [1.0, 0.8, 0.3]];
-  for (let z = MARKET.z0 + 4; z < MARKET.z1 - 4; z += 0.7) { const k = pal[Math.floor(r() * pal.length)]; p.push(MARKET.x1 - 2.6, MARKET_Y + 4.6 - Math.abs(Math.sin(z * 0.5)) * 0.35, z); c.push(k[0] * 2.4, k[1] * 2.4, k[2] * 2.4); s.push(0.12); ph.push(r()); }
-  for (let z = MARKET.z0 + 30; z < MARKET.z1; z += 44) for (let t = 0; t <= 1; t += 0.02) { p.push(MARKET.x1 - 20 - t * 50, MARKET_Y + 6.2 - Math.sin(t * Math.PI) * 1.4, z); c.push(2.4, 1.7, 0.85); s.push(0.11); ph.push(r()); }
+  for (let z = P.core ? 700 : MARKET.z0 + 4; z < (P.core ? 716 : MARKET.z1 - 4); z += 0.7) { const k = pal[Math.floor(r() * pal.length)]; p.push(MARKET.x1 - 2.6, MARKET_Y + 4.6 - Math.abs(Math.sin(z * 0.5)) * 0.35, z); c.push(k[0] * 2.4, k[1] * 2.4, k[2] * 2.4); s.push(0.12); ph.push(r()); }
+  for (let z = P.core ? 1e9 : MARKET.z0 + 30; z < MARKET.z1; z += 44) for (let t = 0; t <= 1; t += 0.02) { p.push(MARKET.x1 - 20 - t * 50, MARKET_Y + 6.2 - Math.sin(t * Math.PI) * 1.4, z); c.push(2.4, 1.7, 0.85); s.push(0.11); ph.push(r()); }
   // deck lamps (the ground shader lights the deck from the same row)
   const lampGeo = [];
-  for (let z = Math.ceil(MARKET.z0 / 22) * 22; z < MARKET.z1; z += 22) { lampGeo.push(new THREE.CylinderGeometry(0.06, 0.08, 5, 8).translate(-512, Y + 2.5, z)); p.push(-512, Y + 5.1, z); c.push(1.0, 0.64, 0.32); s.push(2.4); ph.push(z); obstacles.push({ x: -512, z, r: 0.25 }); }
-  group.add(new THREE.Mesh(merge(lampGeo), darkMetal));
+  for (let z = P.core ? 1e9 : Math.ceil(MARKET.z0 / 22) * 22; z < MARKET.z1; z += 22) { lampGeo.push(new THREE.CylinderGeometry(0.06, 0.08, 5, 8).translate(-512, Y + 2.5, z)); p.push(-512, Y + 5.1, z); c.push(1.0, 0.64, 0.32); s.push(2.4); ph.push(z); obstacles.push({ x: -512, z, r: 0.25 }); }
+  if (lampGeo.length) group.add(new THREE.Mesh(merge(lampGeo), darkMetal));
   const lights = createGlowPoints(p, c, s, ph, { twinkle: 0.15 });
   group.add(lights.points);
 
@@ -202,16 +206,16 @@ export function createMarket(obstacles) {
   group.add(far.points);
 
   const update = (t) => { wheel.rotation.z = t * 0.05; hands.rotation.x = -t * 0.02; };
-  return { group, update, glow: [lights, wheelLights, far] };
+  return { group, update, glow: [lights, wheelLights, far], wheel, pier, far, wheelY: wy };
 }
 
 // ---------------------------------------------------------------- retail core: Westlake Park tree, the holiday star, store names
-export function createRetailCore(obstacles, lots) {
+export function createRetailCore(obstacles, lots, P = {}) {
   const group = new THREE.Group();
   const r = rng(2512);
   const p = [], c = [], s = [], ph = [];
   // the Westlake Park tree
-  const tx = -132, tz = 643, ty = heightAt(tx, tz) + CURB, TH = 17;
+  const [tx, tz] = P.tree || [-132, 643], ty = heightAt(tx, tz) + CURB, TH = 17;
   const tree = new THREE.Mesh(merge([new THREE.ConeGeometry(5.2, TH, 20).translate(tx, ty + 1.5 + TH / 2, tz), new THREE.CylinderGeometry(0.5, 0.6, 1.6, 10).translate(tx, ty + 0.8, tz)]), new THREE.MeshStandardMaterial({ color: 0x06180c, roughness: 0.9 }));
   group.add(tree);
   obstacles.push({ x: tx, z: tz, r: 3.4 });

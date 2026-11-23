@@ -37,7 +37,7 @@ scene.environment = bakeEnvironment(renderer, sky);
 scene.environmentIntensity = 1.0;
 
 const reflection = new PlanarReflection(renderer, 0.5);
-const REAL_MAP = params.get('map') === 'real';
+const REAL_MAP = params.get('map') !== 'grid';
 const ground = createGround(reflection, { real: REAL_MAP });
 scene.add(ground.group);
 

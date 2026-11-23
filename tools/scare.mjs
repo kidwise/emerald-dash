@@ -4,7 +4,7 @@ const browser = await puppeteer.launch({ executablePath: '/Applications/Google C
   args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--window-size=1440,810', '--mute-audio'], defaultViewport: { width: 1440, height: 810 } });
 const page = await browser.newPage();
 page.on('pageerror', e => console.log('pageerror:', String(e).slice(0, 400)));
-await page.goto('http://localhost:5173/', { waitUntil: 'load' });
+await page.goto('http://localhost:5173/?map=grid', { waitUntil: 'load' });
 await page.waitForFunction('window.__ready === true && window.__app.game', { timeout: 30000 });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 await page.keyboard.press('Enter'); await sleep(500);
