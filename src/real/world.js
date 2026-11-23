@@ -299,8 +299,8 @@ export async function initRealWorld(app, mapName = 'slu') {
     const center = createCenter(tc, obstacles, { needle: needleAt, glass: glassAt, fountain: fountainAt, lamps: false, armory: false });
     center.group.position.y = needleY; scene.add(center.group); glow.push(...center.glow); updaters.push(() => center.update(app.time, app.camera.position));
     for (const b of tc) boxSegs(b);
-    heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], needleY + 84, needleAt[1]], dist: 150, lift: -78, ascent: { x: needleAt[0], z: needleAt[1], base: needleY, top: needleY + 167 } },
-      { name: 'Chihuly Garden and Glass', sub: 'Blown glass, lit from within, at the foot of the Needle', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], needleY + 3.5, glassAt[1]], dist: 26, lift: 0.5 });
+    heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], needleY + 84, needleAt[1]], dist: 150, lift: -78, near: 44, ascent: { x: needleAt[0], z: needleAt[1], base: needleY, top: needleY + 167 } },
+      { name: 'Chihuly Garden and Glass', sub: 'Blown glass, lit from within, at the foot of the Needle', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], needleY + 3.5, glassAt[1]], near: 30, dist: 26, lift: 0.5 });
   }
   // ================================================================ the Amazon Spheres: three glass domes of plants
   if (spheresB) {
@@ -352,7 +352,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     shell.frustumCulled = false; shell.renderOrder = 3; scene.add(shell);
     const grow = createGlowPoints(gp, gc, gs, gph, { twinkle: 0.1 }); scene.add(grow.points); glow.push(grow);
     const nr = nearRoad(sx, sz, 3);
-    if (nr) heroStops.push({ name: 'The Spheres', sub: 'Three glass domes of cloud-forest plants at Amazon’s headquarters, opened in 2018', x: nr.x, z: nr.z, look: [sx, baseY + 9, sz], dist: 52, lift: 5 });
+    if (nr) heroStops.push({ near: 34, name: 'The Spheres', sub: 'Three glass domes of cloud-forest plants at Amazon’s headquarters, opened in 2018', x: nr.x, z: nr.z, look: [sx, baseY + 9, sz], dist: 52, lift: 5 });
   }
 
   // ================================================================ famous shapes: MoPOP, the library, the arena roof, arches, artworks
@@ -735,7 +735,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     treeAt = at;
     const retail = createRetailCore(obstacles, [], { tree: at });
     scene.add(retail.group); glow.push(...retail.glow);
-    heroStops.push({ name: 'Westlake Park', sub: 'The holiday tree at the heart of the retail core', x: at[0] + 16, z: at[1] + 14, look: [at[0], H(at[0], at[1]) + 9, at[1]], dist: 30, lift: -4 });
+    heroStops.push({ name: 'Westlake Park', sub: 'The holiday tree at the heart of the retail core', x: at[0] + 16, z: at[1] + 14, look: [at[0], H(at[0], at[1]) + 9, at[1]], near: 24, dist: 30, lift: -4 });
   }
 
   // ================================================================ street-level scenes at the Needle, MOHAI and Westlake Park

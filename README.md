@@ -4,6 +4,8 @@ A browser driving game set in a rainy blue-hour Seattle. You drive a delivery va
 from real map data, from Lake Union to Pike Place Market and the Space Needle, flinging parcels onto doorsteps
 without stopping.
 
+**Play it: https://kidwise.github.io/emerald-dash/**
+
 ## The city
 
 Streets, building footprints, hills and shorelines are baked from OpenStreetMap and public elevation data, covering
@@ -15,6 +17,7 @@ are marked on the map to discover by driving past. Traffic obeys the signals, pe
 streets and neon signs hang from the shopfronts.
 
 Jobs are dispatched near wherever you drive; choose Explore for no clock. Stop beside a landmark for a close look.
+The title screen has a button to reset your landmarks and best score.
 Pike Place Market is walking pace, and its shops hand over cargo with their own rules: catch the thrown fish,
 flowers that must not tip, heavy cheese, yogurt on a clock.
 
@@ -99,6 +102,8 @@ node tools/realmap.mjs                             # drive, walls, traffic, a de
 node tools/realheroes.mjs                          # photograph each landmark in place
 node tools/realhill.mjs                            # drive down the steepest street
 node tools/market.mjs                              # Pike Place: slow zone, postcards, shop cargo
+node tools/reach.mjs                               # flood-fill from the start: can the van get to every landmark, job and pick-up
+node tools/driveup.mjs                             # drive straight at each drive-up landmark from four sides
 node tools/audit.mjs                               # whole-city check: nothing blocking a street, every job and landmark reachable
 node tools/stops.mjs                               # drive up to every landmark stop and check its postcard opens
 node tools/setpieces.mjs                           # the monorail race and the Space Needle ride

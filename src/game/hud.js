@@ -120,7 +120,7 @@ export function createHud() {
         q(p, 'i').style.transform = `rotate(${d.angle}rad)`;
       });
     },
-    showTitle(onStart, onExplore, found, places, credit) {
+    showTitle(onStart, onExplore, found, places, credit, onReset, best) {
       overlay.className = 'hud-overlay title show';
       overlay.innerHTML = `
         <div class="panel">
@@ -137,7 +137,8 @@ export function createHud() {
             <button class="go">START SHIFT <small>ENTER</small></button>
             <button class="go alt">EXPLORE <small>E</small></button>
           </div>
-          <p class="tip">${credit}. An unofficial fan project, not affiliated with any business or landmark shown.</p>
+          <button class="ghost reset" type="button">RESET PROGRESS</button>
+          <p class="tip">${best ? `Best shift: ${Math.round(best).toLocaleString()} points. ` : ''}${credit}. An unofficial fan project, not affiliated with any business or landmark shown.</p>
           <p class="tip"><b>Shift:</b> the clock runs down and every delivery adds time, more for longer trips. Follow the glowing line to the selected job.
           <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a pick-up for a cross-town run: drive gently and hand over slowly.
           <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake. Drive into a <b>gold</b> ring to race the monorail; stop at the Space Needle to ride to the top.<br><b>Explore:</b> no clock. Stars on the map mark the landmarks and an amber line leads to the nearest one you have not found. Found so far: ${found} of ${places}.</p>
@@ -145,6 +146,9 @@ export function createHud() {
       overlay.style.pointerEvents = 'auto';
       q(overlay, '.go').onclick = onStart;
       q(overlay, '.go.alt').onclick = onExplore;
+      // two clicks, so progress is not wiped by accident
+      const rb = q(overlay, '.reset');
+      rb.onclick = () => { if (rb.classList.contains('sure')) onReset(); else { rb.classList.add('sure'); rb.textContent = 'ERASE LANDMARKS AND BEST SCORE? CLICK AGAIN'; setTimeout(() => { if (rb.isConnected) { rb.classList.remove('sure'); rb.textContent = 'RESET PROGRESS'; } }, 4000); } };
     },
     showResults(r, onAgain, onMenu) {
       overlay.className = 'hud-overlay results show';

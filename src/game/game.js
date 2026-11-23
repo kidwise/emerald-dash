@@ -169,7 +169,10 @@ export function initGame(app) {
   route.frustumCulled = false; route.layers.set(1); route.visible = false;
   scene.add(route);
   const AMBER = new THREE.Color(2.4, 1.5, 0.3);
-  const landmarks = () => [...POIS, ...STOPS].map(q => ({ x: q.x, z: q.z, name: q.name, found: album.has(q.name) }));
+  // a landmark you can drive right up to is marked at the landmark itself, not at its kerb-side stop
+  const landmarks = () => [...POIS, ...STOPS].map(q => ({ x: q.near ? q.look[0] : q.x, z: q.near ? q.look[2] : q.z, name: q.name, found: album.has(q.name) }));
+  // how far the van is from counting as "at" a stop: its kerb-side spot, or anywhere within `near` of the landmark
+  const stopDist = (q) => Math.min(Math.hypot(q.x - van.pos.x, q.z - van.pos.z), q.near ? Math.hypot(q.look[0] - van.pos.x, q.look[2] - van.pos.z) - q.near + 6.5 : 1e9);
   const nearestLandmark = () => {
     let best = null, bd = 1e9;
     for (const q of landmarks()) { if (q.found) continue; const d = Math.hypot(q.x - van.pos.x, q.z - van.pos.z); if (d < bd) { bd = d; best = q; } }
@@ -571,7 +574,14 @@ export function initGame(app) {
   let frameN = 0;
   const album = new Set();
   try { for (const n of JSON.parse(localStorage.getItem('emerald-dash-album') || '[]')) if (POIS.some(p => p.name === n) || STOPS.some(p => p.name === n)) album.add(n); } catch { /* ignore */ }
-  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length + STOPS.length, world.credit);
+  const bestScore = () => { try { return Number(localStorage.getItem('emerald-dash-best-city') || 0); } catch { return 0; } };
+  // back to a fresh start: landmarks found and best scores are forgotten (the sound setting is kept)
+  const resetProgress = () => {
+    album.clear(); S.seen = new Set();
+    try { for (const k of Object.keys(localStorage)) if (k.startsWith('emerald-dash-') && k !== 'emerald-dash-muted') localStorage.removeItem(k); } catch { /* ignore */ }
+    showTitle(); hud.toast('Progress reset', 'Landmarks and best score cleared');
+  };
+  const showTitle = () => hud.showTitle(() => startShift(false), () => startShift(true), album.size, POIS.length + STOPS.length, world.credit, resetProgress, bestScore());
   showTitle();
   hud.setClock(SHIFT_TIME, []);
   van.reset(START[0], START[1], START[2]); van.sync();
@@ -673,7 +683,7 @@ export function initGame(app) {
       const collecting = targets.some(t => !t.done && t.kind === 'pickup' && Math.hypot(t.x - van.pos.x, t.z - van.pos.z) < 7);
       if (!S.post && S.stillT > 0.7 && !collecting) {
         // the nearest stop wins; where two face each other across a street, one you have not seen yet goes first
-        const dq = (q) => Math.hypot(q.x - van.pos.x, q.z - van.pos.z);
+        const dq = stopDist;
         const st = STOPS.filter(q => dq(q) < 6.5 && q !== S.lastStop).sort((p1, p2) => (S.seen.has(p1.name) - S.seen.has(p2.name)) || dq(p1) - dq(p2))[0];
         if (st && st !== S.lastStop) {
           S.post = { stop: st, t: 0 }; S.lastStop = st; hud.postcard(st.name, st.sub); audio.play('place');
@@ -681,7 +691,7 @@ export function initGame(app) {
           if (!album.has(st.name)) { album.add(st.name); try { localStorage.setItem('emerald-dash-album', JSON.stringify([...album])); } catch { /* ignore */ } }
         }
       }
-      if (S.lastStop && Math.hypot(S.lastStop.x - van.pos.x, S.lastStop.z - van.pos.z) > 14) S.lastStop = null;
+      if (S.lastStop && (S.lastStop.look ? stopDist(S.lastStop) : Math.hypot(S.lastStop.x - van.pos.x, S.lastStop.z - van.pos.z)) > 14) S.lastStop = null;
       if (S.post || S.race) { if (!S.explore) S.time += dt; }      // the clock waits while you look, and during a race
       if (!S.post && S.fogCut) { S.fogCut = false; setFog(baseFog()); }
       updateRace(dt);
