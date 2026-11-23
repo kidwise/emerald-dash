@@ -534,7 +534,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   // wall segments in a grid for collision
   // a wall that crosses a carriageway (a skybridge, or a building mapped over a street) must not block the street
   {
-    const crosses = (s) => { const len = Math.hypot(s.bx - s.ax, s.bz - s.az), n = Math.max(1, Math.ceil(len / 2)); for (let k = 0; k <= n; k++) { const x = s.ax + (s.bx - s.ax) * k / n, z = s.az + (s.bz - s.az) * k / n, nr = nearRoad(x, z, 1); if (nr && nr.rd.kind !== 'pedestrian' && nr.d < nr.rd.hw - 0.4 && !inSet(x, z, 4)) return true; } return false; };
+    const crosses = (s) => { const len = Math.hypot(s.bx - s.ax, s.bz - s.az), n = Math.max(1, Math.ceil(len / 2)); for (let k = 0; k <= n; k++) { const x = s.ax + (s.bx - s.ax) * k / n, z = s.az + (s.bz - s.az) * k / n, nr = nearRoad(x, z, 1); if (nr && nr.d < nr.rd.hw - 0.4 && !inSet(x, z, 4)) return true; } return false; };
     for (let i = segs.length - 1; i >= 0; i--) if (!segs[i].low && crosses(segs[i])) segs.splice(i, 1);
   }
   // a job needs a doorstep on open ground within throwing reach of a street
@@ -590,7 +590,8 @@ export async function initRealWorld(app, mapName = 'slu') {
   // ================================================================ routing over the real street graph
   const nodes = new Map();
   const node = (k) => { if (!nodes.has(k)) { const [x, z] = k.split(',').map(Number); nodes.set(k, { k, x, z, e: [] }); } return nodes.get(k); };
-  roads.forEach((rd) => { for (let i = 1; i < rd.nodes.length; i++) { const A = node(rd.nodes[i - 1].k), Bn = node(rd.nodes[i].k), d = rd.v[rd.nodes[i].i] - rd.v[rd.nodes[i - 1].i]; A.e.push([Bn, d]); if (!rd.oneway) Bn.e.push([A, d]); else Bn.e.push([A, d * 3]); } });
+  roads.forEach((rd) => { for (let i = 1; i < rd.nodes.length; i++) { const A = node(rd.nodes[i - 1].k), Bn = node(rd.nodes[i].k), d = (rd.v[rd.nodes[i].i] - rd.v[rd.nodes[i - 1].i]) * (rd.kind === 'pedestrian' ? 4 : 1);      // routes prefer real streets to footways
+    A.e.push([Bn, d]); if (!rd.oneway) Bn.e.push([A, d]); else Bn.e.push([A, d * 3]); } });
   const ends = (hit) => {
     const rd = hit.rd, at = rd.v[hit.s.i - 1] + (rd.v[hit.s.i] - rd.v[hit.s.i - 1]) * hit.t, out = [];
     let before = null, after = null;

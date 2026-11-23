@@ -22,7 +22,6 @@ const report = await page.evaluate(() => {
   const bad = [];
   let stations = 0;
   for (const rd of D.roads) {
-    if (rd.kind === 'pedestrian') continue;
     for (let i = 1; i < rd.pts.length; i++) {
       const a = rd.pts[i - 1], b = rd.pts[i], mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2;
       if (!inB(mx, mz) || w.inWater(mx, mz)) continue;

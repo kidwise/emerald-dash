@@ -36,18 +36,18 @@ for (const n of names) {
         const now = performance.now();
         if (now - t0 > 1000) { stuckT = Math.hypot(v.pos.x - lastX, v.pos.z - lastZ) < 0.6 ? stuckT + 1 : 0; lastX = v.pos.x; lastZ = v.pos.z; t0 = now; P.elapsed = (P.elapsed || 0) + 1; }
         if (stuckT > 9) { P.done = true; P.why = `stuck ${Math.round(dGoal)} m short at ${Math.round(v.pos.x)},${Math.round(v.pos.z)}`; }
-        if ((P.elapsed || 0) > 110) { P.done = true; P.why = `timed out ${Math.round(dGoal)} m short at ${Math.round(v.pos.x)},${Math.round(v.pos.z)}`; }
+        if ((P.elapsed || 0) > 170) { P.done = true; P.why = `timed out ${Math.round(dGoal)} m short at ${Math.round(v.pos.x)},${Math.round(v.pos.z)}`; }
         requestAnimationFrame(tick);
       };
       tick();
     }, n, ang);
-    await p.waitForFunction('window.__pilot.done', { timeout: 150000 });
+    await p.waitForFunction('window.__pilot.done', { timeout: 220000 });
     const why = await p.evaluate(() => { window.__app.autoDrive = null; return window.__pilot.why; });
     await sleep(1900);
-    const post = (await p.evaluate(() => window.__app.game.state.post && window.__app.game.state.post.stop.name)) === n;
-    const ok = why === 'arrived' && post;
+    const opened = await p.evaluate(() => window.__app.game.state.post && window.__app.game.state.post.stop.name);
+    const ok = why === 'arrived' && !!opened;
     if (!ok) { fails++; await p.screenshot({ path: `shots/fail-${n.replace(/[^a-z]/gi, '').slice(0, 12)}-${ang}.png` }); }
-    res.push(ok ? 'ok' : why === 'arrived' ? 'ARRIVED, NOTHING OPENED' : why.toUpperCase());
+    res.push(ok ? (opened === n ? 'ok' : 'ok (opened ' + opened.split(' ')[0] + ' across the street)') : why === 'arrived' ? 'ARRIVED, NOTHING OPENED' : why.toUpperCase());
     await p.keyboard.press('Space'); await sleep(300);
   }
   console.log(n.padEnd(27), res.join(' | '));

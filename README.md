@@ -102,6 +102,7 @@ node tools/realmap.mjs                             # drive, walls, traffic, a de
 node tools/realheroes.mjs                          # photograph each landmark in place
 node tools/realhill.mjs                            # drive down the steepest street
 node tools/market.mjs                              # Pike Place: slow zone, postcards, shop cargo
+node tools/routedrive.mjs [name]                    # drive to landmarks along the game's own route, with traffic (slow)
 node tools/reach.mjs                               # flood-fill from the start: can the van get to every landmark, job and pick-up
 node tools/driveup.mjs                             # drive straight at each drive-up landmark from four sides
 node tools/audit.mjs                               # whole-city check: nothing blocking a street, every job and landmark reachable
