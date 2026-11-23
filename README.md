@@ -59,6 +59,9 @@ so release as the marker crosses the glowing ring. Faster throws, dead-centre dr
 | Purple | Land a parcel on the moving streetcar's roof (offered when you are near it) |
 | Blue | Throw onto a floating dock on Lake Union (offered when you are near the lake) |
 
+Two set pieces: drive into a gold ring at either end of the monorail to race the train to the other end, and stop
+at the Space Needle to ride to the top for a view over the city.
+
 The clock runs down and every delivery adds time, more for longer drives. Other scoring: near misses with moving
 traffic, air time over hill crests, landmarks found, coffee-cup turbos. Bumping things breaks your streak; driving
 at pedestrians costs 50 points (they always jump clear).
@@ -96,6 +99,7 @@ node tools/realmap.mjs                             # drive, walls, traffic, a de
 node tools/realheroes.mjs                          # photograph each landmark in place
 node tools/realhill.mjs                            # drive down the steepest street
 node tools/market.mjs                              # Pike Place: slow zone, postcards, shop cargo
+node tools/setpieces.mjs                           # the monorail race and the Space Needle ride
 node tools/weather.mjs                             # the clear-evening toggle
 node tools/soak.mjs "" 60                          # 60 s of random driving and crashes
 node tools/fetch-assets.mjs                        # re-download the CC0 textures

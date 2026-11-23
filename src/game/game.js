@@ -13,6 +13,7 @@ const KINDS = {
   grocery: { col: [0.5, 2.4, 0.55], css: '#6dff8f', tag: 'GROCERIES', base: 320 },
   tram: { col: [1.7, 0.7, 2.8], css: '#c77dff', tag: 'STREETCAR', base: 350 },
   boat: { col: [0.6, 1.3, 2.9], css: '#7fb6ff', tag: 'DOCK', base: 300 },
+  race: { col: [2.8, 2.2, 0.5], css: '#ffe066', tag: 'RACE THE MONORAIL', base: 0 },
 };
 const TRAM_ROOF = 3.55;
 
@@ -182,6 +183,7 @@ export function initGame(app) {
     // in explore mode the nearest landmark you have not found yet leads the list
     const lm = S.explore ? nearestLandmark() : null;
     const list = lm ? [lm, ...live] : live;
+    if (S.race) { nav.target = raceMarks[S.race.to]; } else
     nav.target = carrying || list[(S.navSkip || 0) % Math.max(1, list.length)] || null;
     route.visible = !!nav.target && S.mode === 'play';
     if (!nav.target) { nav.pts = []; return; }
@@ -203,6 +205,40 @@ export function initGame(app) {
     rGeo.setDrawRange(0, Math.max(0, (n - 1) * 6));
     rGeo.attributes.position.needsUpdate = true; rGeo.attributes.aDist.needsUpdate = true;
   };
+
+  // ---------------------------------------------------------------- racing the monorail between its two ends
+  const rail = world.monorail;
+  const raceMarks = rail ? rail.gates.map((q) => { const t = makeTarget('race', q.x, q.z, heightAt(q.x, q.z) + 0.12, 'Monorail race'); t.g.scale.setScalar(1.5); return t; }) : [];
+  function updateRace(dt) {
+    if (!rail) return;
+    const st = rail.state, R = S.race;
+    S.raceCd = Math.max(0, (S.raceCd || 0) - dt);
+    raceMarks.forEach((m, i) => {
+      m.g.visible = R ? i === R.to : S.raceCd <= 0;
+      m.bm.uniforms.uTime.value = app.time; m.icon.rotation.y += dt * 2;
+      const pulse = 0.75 + 0.25 * Math.sin(app.time * 5 + i); m.ring.material.color.copy(m.col).multiplyScalar(pulse); m.disc.material.color.copy(m.col).multiplyScalar(0.12);
+    });
+    if (!R) {
+      if (S.raceCd > 0 || S.cargo || S.toss) return;
+      const i = raceMarks.findIndex(m => Math.hypot(m.x - van.pos.x, m.z - van.pos.z) < 5.5);
+      if (i < 0) return;
+      // the train comes to this end, waits for the count, then leaves at racing speed
+      st.s = i === 0 ? 20 : rail.total - 20; st.dir = i === 0 ? 1 : -1; st.v = 0; st.wait = 3; st.max = 19;
+      S.race = { to: 1 - i, t: 0, info: 0, route: routeLen(van.pos.x, van.pos.z, raceMarks[1 - i].x, raceMarks[1 - i].z) };
+      hud.banner('Race the monorail'); hud.toast('First to the other end of the line', 'The train leaves in 3 seconds', 'rush'); audio.play('bell');
+      return;
+    }
+    R.t += dt; R.info -= dt;
+    const fin = raceMarks[R.to], trainLeft = st.dir > 0 ? rail.total - 20 - st.s : st.s - 20, arrived = R.t > 4 && (trainLeft < 1 || st.wait > 0);
+    if (R.info <= 0) { R.info = 0.4; R.route = routeLen(van.pos.x, van.pos.z, fin.x, fin.z); hud.prompt(`YOU ${Math.round(R.route)} m  ·  TRAIN ${Math.max(0, Math.round(trainLeft))} m`, true); }
+    const won = Math.hypot(fin.x - van.pos.x, fin.z - van.pos.z) < 9;
+    if (won || arrived || R.t > 240) {
+      S.race = null; S.raceCd = 25; st.max = 15; hud.prompt(null);
+      const sp = project(van.pos.x, van.y + 3.4, van.pos.z);
+      if (won) { const pts = 1500 + Math.min(600, Math.round(Math.max(0, trainLeft) / 5) * 5); S.score += pts; if (!S.explore) S.time = Math.min(240, S.time + 30); hud.pop(sp.x, sp.y, `BEAT THE TRAIN +${pts}`, 'perfect'); hud.setScore(S.score, S.streak); hud.toast('You beat the monorail', `${R.t.toFixed(0)} s · +30 s`, 'place'); audio.play('win'); S.racesWon = (S.racesWon || 0) + 1; }
+      else { hud.toast('The monorail won', 'Drive back to a gold ring to try again', 'rush'); audio.play('lose'); }
+    }
+  }
 
   // ---------------------------------------------------------------- parcels
   const boxTex = (() => {
@@ -293,7 +329,7 @@ export function initGame(app) {
     clearTargets();
     if (S.mode !== 'end' || !S.keepPos) van.reset(START[0], START[1], START[2]);
     Object.assign(S, { mode: 'play', explore: !!explore, time: SHIFT_TIME, score: 0, streak: 0, lastDelivery: -99, delivered: 0, resolved: 0, perfect: 0, bestCombo: 0, topSpeed: 0, throwCd: 0,
-      camHeading: van.heading, elapsed: 0, cargo: null, airBest: 0, spawnCd: 0, post: null, toss: null, lastStop: null, stillT: 0, slowK: 0, coffeeCd: 0, wasSlow: false, district: district(van.pos.x, van.pos.z), seen: new Set() });
+      camHeading: van.heading, elapsed: 0, cargo: null, airBest: 0, spawnCd: 0, post: null, toss: null, race: null, raceCd: 0, lastStop: null, stillT: 0, slowK: 0, coffeeCd: 0, wasSlow: false, district: district(van.pos.x, van.pos.z), seen: new Set() });
     for (const p of pickups) { p.active = true; p.g.visible = true; }
     for (const p of parcels) { p.active = false; p.m.visible = false; p.ride = false; }
     van.heavy = false; van.limit = 0;
@@ -336,7 +372,7 @@ export function initGame(app) {
     if (isBest) { best = sc; try { localStorage.setItem(bkey, String(Math.round(best))); } catch { /* ignore */ } }
     audio.play(won ? 'win' : 'lose');
     hud.setPlaying(false);
-    S.post = null; S.toss = null; fishMesh.visible = false; hud.postcard(null); hud.prompt(null); van.limit = 0; van.heavy = false;
+    S.post = null; S.toss = null; S.race = null; if (rail) rail.state.max = 15; fishMesh.visible = false; hud.postcard(null); hud.prompt(null); van.limit = 0; van.heavy = false;
     hud.showResults({ won, explore: S.explore, grade, score: sc, delivered: S.delivered, perfect: S.perfect, bestCombo: S.bestCombo, topSpeed: S.topSpeed, best: isBest, bestScore: best, album: album.size, places: PLACES, minutes: S.elapsed / 60 }, () => startShift(S.explore), () => { S.mode = 'title'; S.titleT = 0; showTitle(); });
   };
 
@@ -490,7 +526,26 @@ export function initGame(app) {
     camera.updateProjectionMatrix();
   }
   // stop beside a landmark and the camera drifts in for a look
+  const baseFog = () => (S.clear ? 0.0024 : 0.0036);
+  const setFog = (d) => { scene.fog.density = d; ground.uniforms.uFogDensity.value = d; };
+  // the ride to the top of the Space Needle: the camera climbs the tower, then circles the deck looking out over the city
+  function ascentCamera(dt) {
+    const P = S.post, A = P.stop.ascent; P.t += dt;
+    const k = Math.min(1, P.t / 9), e = k * k * (3 - 2 * k), ang = 0.6 + P.t * 0.24, rad = 30 - 5 * e, y = A.base + 3 + (A.top - A.base - 3) * e;
+    camPos.set(A.x + Math.cos(ang) * rad, y, A.z + Math.sin(ang) * rad);
+    camera.position.lerp(camPos, 1 - Math.exp(-dt * 5));
+    lookSm.lerp(camLook.set(A.x + Math.cos(ang) * 420, y - 25 - 95 * e, A.z + Math.sin(ang) * 420), 1 - Math.exp(-dt * 4));
+    camera.lookAt(lookSm);
+    camera.fov += (64 - camera.fov) * Math.min(1, dt * 2); camera.updateProjectionMatrix();
+    setFog(baseFog() * (1 - 0.62 * e)); S.fogCut = true;      // the air clears as you rise above the street
+    if (k >= 1 && !P.top) {
+      P.top = true; hud.postcard('Top of the Needle', '520 feet up: Lake Union, downtown and the bay below');
+      if (!S.seen.has('Top of the Needle')) { S.seen.add('Top of the Needle'); S.score += 500; hud.setScore(S.score, S.streak); audio.play('perfect'); }
+    }
+    if (P.t > 30 || keys.has('KeyW') || keys.has('ArrowUp') || keys.has('KeyS') || keys.has('ArrowDown') || hud.touch.gas) { S.post = null; hud.postcard(null); }
+  }
   function postcardCamera(dt) {
+    if (S.post.stop.ascent) return ascentCamera(dt);
     const P = S.post, s = P.stop; P.t += dt;
     const ly = s.relY ? heightAt(s.look[0], s.look[2]) + s.look[1] + 6 : s.look[1];
     const base = Math.atan2(s.z - s.look[2], s.x - s.look[0]);
@@ -625,7 +680,9 @@ export function initGame(app) {
         }
       }
       if (S.lastStop && Math.hypot(S.lastStop.x - van.pos.x, S.lastStop.z - van.pos.z) > 14) S.lastStop = null;
-      if (S.post) { if (!S.explore) S.time += dt; }      // the clock waits while you look
+      if (S.post || S.race) { if (!S.explore) S.time += dt; }      // the clock waits while you look, and during a race
+      if (!S.post && S.fogCut) { S.fogCut = false; setFog(baseFog()); }
+      updateRace(dt);
       // coffee from the first store: a longer turbo
       S.coffeeCd -= dt;
       const cf = world.pike.coffee;

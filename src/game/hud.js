@@ -80,7 +80,7 @@ export function createHud() {
       root.classList.toggle('looking', !!name);
       if (name) card.innerHTML = `<small>LANDMARK</small><b>${name}</b><span>${sub}</span><i>W to drive on</i>`;
     },
-    prompt(text) { promptEl.classList.toggle('show', !!text); if (text) promptEl.textContent = text; },
+    prompt(text, info = false) { promptEl.classList.toggle('show', !!text); promptEl.classList.toggle('info', !!text && info); if (text) promptEl.textContent = text; },
     soundButton(onToggle, on) {
       sound.onclick = (e) => { e.stopPropagation(); onToggle(); sound.blur(); };
       api.setSound(on);
@@ -140,7 +140,7 @@ export function createHud() {
           <p class="tip">${credit}.</p>
           <p class="tip"><b>Shift:</b> the clock runs down and every delivery adds time, more for longer trips. Follow the glowing line to the selected job.
           <b>Pink</b> rush orders pay triple but expire. <b>Amber</b> is a pick-up for a cross-town run: drive gently and hand over slowly.
-          <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake.<br><b>Explore:</b> no clock. Stars on the map mark the landmarks and an amber line leads to the nearest one you have not found. Found so far: ${found} of ${places}.</p>
+          <b>Purple</b> rides the streetcar roof. <b>Blue</b> is on a dock at the lake. Drive into a <b>gold</b> ring to race the monorail; stop at the Space Needle to ride to the top.<br><b>Explore:</b> no clock. Stars on the map mark the landmarks and an amber line leads to the nearest one you have not found. Found so far: ${found} of ${places}.</p>
         </div>`;
       overlay.style.pointerEvents = 'auto';
       q(overlay, '.go').onclick = onStart;

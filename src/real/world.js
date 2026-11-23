@@ -53,7 +53,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     return u > v ? a + (b - a) * u + (c - b) * v : a + (c - d) * u + (d - a) * v;    // the same two triangles the terrain mesh draws
   };
   const updaters = [], glow = [], obstacles = [], colliders = [];
-  let parkedCount = 0, signCount = 0, iconSpots = null, treeAt = null;
+  let parkedCount = 0, signCount = 0, iconSpots = null, treeAt = null, railRef = null;
 
   // ---- hand-built landmarks take their real places; the map's own buildings make way for them
   const centreOf = (b) => { let x = 0, z = 0; for (const q of b.p) { x += q[0]; z += q[1]; } return [x / b.p.length, z / b.p.length]; };
@@ -289,7 +289,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     const center = createCenter(tc, obstacles, { needle: needleAt, glass: glassAt, fountain: fountainAt, lamps: false, armory: false });
     center.group.position.y = needleY; scene.add(center.group); glow.push(...center.glow); updaters.push(() => center.update(app.time, app.camera.position));
     for (const b of tc) boxSegs(b);
-    heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], needleY + 84, needleAt[1]], dist: 150, lift: -78 },
+    heroStops.push({ name: 'Space Needle', sub: '605 feet, built for the 1962 World’s Fair', x: needleAt[0] + 36, z: needleAt[1] + 30, look: [needleAt[0], needleY + 84, needleAt[1]], dist: 150, lift: -78, ascent: { x: needleAt[0], z: needleAt[1], base: needleY, top: needleY + 167 } },
       { name: 'Chihuly Garden and Glass', sub: 'Blown glass, lit from within, at the foot of the Needle', x: glassAt[0] + 20, z: glassAt[1], look: [glassAt[0], needleY + 3.5, glassAt[1]], dist: 26, lift: 0.5 });
   }
   // ================================================================ the Amazon Spheres: three glass domes of plants
@@ -420,7 +420,7 @@ export async function initRealWorld(app, mapName = 'slu') {
   const mono = (data.monorail || []).slice().sort((a, b) => b.length - a.length)[0];
   if (mono) {
     const js = [...junctionR].map(([k, R]) => [...k.split(',').map(Number), R]);
-    const rail = createMonorail(obstacles, { pts: mono, heightAt: H, inJunction: (x, z) => js.some(q => Math.hypot(q[0] - x, q[1] - z) < q[2] + 9) });
+    const rail = railRef = createMonorail(obstacles, { pts: mono, heightAt: H, inJunction: (x, z) => js.some(q => Math.hypot(q[0] - x, q[1] - z) < q[2] + 9) });
     scene.add(rail.group); updaters.push((dt) => rail.update(dt));
   }
 
@@ -880,6 +880,8 @@ export async function initRealWorld(app, mapName = 'slu') {
     buildings: { lots }, streetcar: { state: tram },
     traffic: { cars, update: trafficUpdate, bump }, peds,
     pike: { sources: [], stops: [], coffee }, inSlow,
+    // the monorail, for racing it: a start gate on the street by each end of the line
+    monorail: railRef && { state: railRef.state, total: railRef.total, gates: railRef.ends.map(([x, z]) => { const nr = nearRoad(x, z, 4); return nr ? { x: nr.x, z: nr.z } : { x, z }; }) },
     start, pois, sources, stops: heroStops, coffeeSpots, streetName, nearestRoad, drawMap, credit: data.credit,
     stats: { roads: roads.length, buildings: data.buildings.length, named: lots.length, lamps: sites.length, trees: treeSpots.length, parked: parkedCount, signs: signCount, iconSpots },
   };

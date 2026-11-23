@@ -102,7 +102,7 @@ export function createMonorail(obstacles, custom) {
     if (state.wait > 0) { state.wait -= dt; state.v = 0; }
     else {
       const lead = state.dir > 0 ? total - 20 - state.s : state.s - 20;
-      const target = Math.min(15, Math.sqrt(Math.max(0, 2 * 1.6 * lead)) + 0.3);
+      const target = Math.min(state.max ?? 15, Math.sqrt(Math.max(0, 2 * 1.6 * lead)) + 0.3);
       state.v += THREE.MathUtils.clamp(target - state.v, -4 * dt, 2 * dt);
       state.s += state.dir * state.v * dt;
       if (lead < 0.5) { state.dir *= -1; state.wait = 7; }
@@ -115,7 +115,7 @@ export function createMonorail(obstacles, custom) {
     });
   };
   update(0);
-  return { group, update, state };
+  return { group, update, state, total, ends: [[pts[0].x, pts[0].y], [pts[pts.length - 1].x, pts[pts.length - 1].y]] };
 }
 
 // ---------------------------------------------------------------- Pike Place Market, the bay and the Great Wheel
