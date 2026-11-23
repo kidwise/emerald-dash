@@ -6,6 +6,7 @@ import { createLake } from '../world/landmarks.js';
 import { rng } from '../world/rng.js';
 import { setMap } from '../config.js';
 import { createIcons } from '../world/icons.js';
+import { createScenes } from '../world/scenes.js';
 import { createPikePlace, PIKE } from '../world/market.js';
 import { createCenter, createMonorail, createMarket, createRetailCore, textTexture, signPlane } from '../world/districts.js';
 import { createStreetcar } from '../world/landmarks.js';
@@ -52,7 +53,7 @@ export async function initRealWorld(app, mapName = 'slu') {
     return u > v ? a + (b - a) * u + (c - b) * v : a + (c - d) * u + (d - a) * v;    // the same two triangles the terrain mesh draws
   };
   const updaters = [], glow = [], obstacles = [], colliders = [];
-  let parkedCount = 0, signCount = 0, iconSpots = null;
+  let parkedCount = 0, signCount = 0, iconSpots = null, treeAt = null;
 
   // ---- hand-built landmarks take their real places; the map's own buildings make way for them
   const centreOf = (b) => { let x = 0, z = 0; for (const q of b.p) { x += q[0]; z += q[1]; } return [x / b.p.length, z / b.p.length]; };
@@ -691,9 +692,25 @@ export async function initRealWorld(app, mapName = 'slu') {
   {
     const wp = data.parks.find(q => /Westlake Park/.test(q.n));
     const at = wp ? centreOf(wp) : [71, 799];
+    treeAt = at;
     const retail = createRetailCore(obstacles, [], { tree: at });
     scene.add(retail.group); glow.push(...retail.glow);
     heroStops.push({ name: 'Westlake Park', sub: 'The holiday tree at the heart of the retail core', x: at[0] + 16, z: at[1] + 14, look: [at[0], H(at[0], at[1]) + 9, at[1]], dist: 30, lift: -4 });
+  }
+
+  // ================================================================ street-level scenes at the Needle, MOHAI and Westlake Park
+  {
+    const waterSpot = (cx, cz, clear) => {
+      for (let rad = 0; rad < 240; rad += 14) for (let a = 0; a < 6.28; a += 0.35) {
+        const x = cx + Math.cos(a) * rad, z = cz + Math.sin(a) * rad;
+        if ([[0, 0], [clear, 0], [-clear, 0], [0, clear], [0, -clear]].every(([ox, oz]) => inWater(x + ox, z + oz) && !inBuilding(x + ox, z + oz)) && !(dock && Math.hypot(x - dock.x, z - dock.z) < clear + 8)) return [x, z];
+      }
+      return null;
+    };
+    const mLot = lots.find(l => l.name === 'MOHAI'), ken = data.buildings.find(b => /Kenmore Air/.test(b.n));
+    const scenes = createScenes({ H, r, needle: needleAt, mohai: mLot && { x: mLot.door.x, z: mLot.door.z, nx: mLot.door.nx, nz: mLot.door.nz }, waterSpot,
+      waterLevel: (x, z) => { const n = lakes.findIndex(ring => inPoly(x, z, ring)); return n >= 0 ? waterY[n] : 0; }, seaplane: ken && centreOf(ken), tree: treeAt });
+    scene.add(scenes.group); glow.push(...scenes.glow); obstacles.push(...scenes.obstacles); updaters.push(() => scenes.update(app.time));
   }
 
   const start0 = [-17, -70];

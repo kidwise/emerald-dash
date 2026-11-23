@@ -74,6 +74,7 @@ photographic textures, hand-designed SVG signage, and the baked map and height g
 - `src/world/market.js` — Pike Place Market, modelled by hand: arcade, stalls, shopfronts, people.
 - `src/world/icons.js` — MoPOP, the Central Library, the arena roof, the Science Center arches, the Eagle,
   Hammering Man and the Gum Wall.
+- `src/world/scenes.js` — street-level life at the Needle plaza, the MOHAI waterfront and Westlake Park.
 - `src/world/districts.js` — monorail, market sign and Great Wheel, holiday tree, Space Needle, glass garden, fountain.
 - `src/world/props.js`, `cars.js`, `pedestrians.js`, `landmarks.js`, `rain.js`, `sky.js` — lamps and trees, car
   models, pedestrians, water and the streetcar model, rain, sky.
