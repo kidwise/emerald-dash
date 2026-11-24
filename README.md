@@ -11,8 +11,8 @@ without stopping.
 Streets, building footprints, hills and shorelines are baked from OpenStreetMap and public elevation data, covering
 South Lake Union, Belltown, the downtown retail core, Pike Place and Seattle Center (about 2 km by 2.6 km).
 Hand-built landmarks stand at their real positions: Pike Place Market (arcade, stalls and shopfronts), the Public
-Market sign, the Space Needle and Chihuly Garden and Glass, the Amazon Spheres, the monorail, the streetcar, the
-Westlake Park holiday tree, MOHAI and the Great Wheel. Another two dozen places (museums, theatres, stores, parks)
+Market sign, the Space Needle and Chihuly Garden and Glass, the Amazon Spheres, MoPOP, Climate Pledge Arena, the
+Seattle Aquarium, the monorail, the streetcar, the Westlake Park holiday tree, MOHAI and the Great Wheel. Another two dozen places (museums, theatres, stores, parks)
 are marked on the map to discover by driving past. Traffic obeys the signals, pedestrians walk the kerbs, cars are parked along the wider
 streets and neon signs hang from the shopfronts.
 
@@ -82,8 +82,9 @@ photographic textures, hand-designed SVG signage, and the baked map and height g
 - `src/gfx/planar.js` — mirror pass for the wet streets; the mirror tilts to lie along the street the van is on.
 - `src/world/facade.js` — building surfaces; windows use interior mapping so lit rooms have real parallax depth.
 - `src/world/market.js` — Pike Place Market, modelled by hand: arcade, stalls, shopfronts, people.
-- `src/world/icons.js` — MoPOP, the Central Library, the arena roof, the Science Center arches, the Eagle,
-  Hammering Man and the Gum Wall.
+- `src/world/icons.js` — MoPOP's shingled metal, the Central Library, the arena's saddle roof and glass concourse,
+  the Aquarium's animated tank window and pier sheds, the Science Center arches, the Eagle, Hammering Man and the
+  Gum Wall.
 - `src/world/scenes.js` — street-level life at the Needle plaza, the MOHAI waterfront and Westlake Park.
 - `src/world/districts.js` — monorail, market sign and Great Wheel, holiday tree, Space Needle, glass garden, fountain.
 - `src/world/props.js`, `cars.js`, `pedestrians.js`, `landmarks.js`, `rain.js`, `sky.js` — lamps and trees, car

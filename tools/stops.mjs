@@ -21,7 +21,7 @@ for (const n of names) {
     // brake to a halt, then wait for the postcard
     for (let i = 0; i < 40; i++) { const sp = await p.evaluate(() => window.__app.game.van.vf); if (sp < 0.8) break; await p.keyboard.down('KeyS'); await sleep(50); await p.keyboard.up('KeyS'); }
     await sleep(1800);
-    const post = (await p.evaluate(() => window.__app.game.state.post && window.__app.game.state.post.stop.name)) === n;
+    const post = (await p.evaluate(() => { const s = window.__app.game.state; return (s.post && s.post.stop.name) || (s.lastStop && s.lastStop.name); })) === n;
     if (!best || (post && !best.post)) best = { road, reached, post, dir };
     await p.keyboard.press('Space'); await sleep(300);
     if (post) break;

@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createGlowPoints } from './props.js';
 import { asset } from '../config.js';
+import { textTexture, signPlane } from './districts.js';
 
 // Recognisable shapes for famous buildings and artworks, built on their real footprints or positions:
-// MoPOP's crumpled metal, the Central Library's faceted glass, the arena's pyramid roof,
-// the Pacific Science Center arches, the Eagle, Hammering Man and the Gum Wall.
+// MoPOP's crumpled metal, the Central Library's faceted glass, the arena's saddle roof, the Aquarium's
+// Ocean Pavilion and pier sheds, the Pacific Science Center arches, the Eagle, Hammering Man and the Gum Wall.
 
 // oriented bounding box of a footprint: centre, axes and half sizes
 function obb(ring) {
@@ -19,26 +20,81 @@ function obb(ring) {
   return o;
 }
 
-export function createIcons({ H, r, mopop, library, arena, science, eagle, hammer, gum }) {
+// a tiling texture drawn on a canvas
+function canvasTex(w, h, draw, repeat) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  if (repeat) t.repeat.set(repeat[0], repeat[1]);
+  return t;
+}
+// Floodlights at the foot of a building: a warm wash of the surface's own colour that fades with height.
+function uplit(mat, y0, reach, k) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uUp = { value: new THREE.Vector3(y0, reach, k) };
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vUpY;').replace('#include <project_vertex>', '#include <project_vertex>\n vUpY = (modelMatrix * vec4(transformed, 1.0)).y;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uUp; varying float vUpY;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.86, 0.66) * uUp.z * exp(-max(vUpY - uUp.x, 0.0) / uUp.y);');
+  };
+  mat.customProgramCacheKey = () => 'uplit';
+  return mat;
+}
+// collects quads and triangles (each flat-shaded) into one geometry
+function builder() {
+  const pos = [], uv = [], idx = [];
+  return {
+    quad(a, b, c, d, ua, ub, uc, ud) { const n = pos.length / 3; pos.push(...a, ...b, ...c, ...d); uv.push(...ua, ...ub, ...uc, ...ud); idx.push(n, n + 1, n + 2, n, n + 2, n + 3); },
+    tri(a, b, c, ua, ub, uc) { const n = pos.length / 3; pos.push(...a, ...b, ...c); uv.push(...ua, ...ub, ...uc); idx.push(n, n + 1, n + 2); },
+    build() { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g; },
+  };
+}
+// a box-section beam between two points
+function beam(a, b, w, h) {
+  const A = new THREE.Vector3(...a), Bv = new THREE.Vector3(...b), g = new THREE.BoxGeometry(w, h, A.distanceTo(Bv));
+  return g.applyMatrix4(new THREE.Matrix4().lookAt(A, Bv, new THREE.Vector3(0, 1, 0)).setPosition(A.clone().add(Bv).multiplyScalar(0.5)));
+}
+
+export function createIcons({ H, r, mopop, library, arena, aquarium, science, eagle, hammer, gum }) {
   const group = new THREE.Group();
-  const glow = [], updaters = [];
+  const glow = [], updaters = [], spots = {};
+  // standing-seam metal roofing, shared by the arena and the pier sheds
+  const seams = canvasTex(64, 64, (x) => { x.fillStyle = '#c8c8c8'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#f4f4f4'; x.fillRect(0, 0, 3, 64); x.fillStyle = '#7a7a7a'; x.fillRect(3, 0, 2, 64); x.fillStyle = 'rgba(0,0,0,0.12)'; x.fillRect(0, 30, 64, 1); });
+  seams.colorSpace = THREE.SRGBColorSpace;
+  const zinc = (em) => new THREE.MeshStandardMaterial({ color: 0x8b939e, metalness: 0.65, roughness: 0.42, map: seams, bumpMap: seams, bumpScale: 0.8, emissive: em, side: THREE.DoubleSide });
   const groundAt = (ring) => Math.min(...ring.map(([x, z]) => H(x, z)));
 
-  // ---------------------------------------------------------------- MoPOP: crumpled, coloured sheet metal
+  // ---------------------------------------------------------------- MoPOP: crumpled sheet metal in six colours
   if (mopop) {
-    const B = obb(mopop), y0 = groundAt(mopop) - 0.5;
-    const blobs = [[-0.55, -0.2, 0.5, 20, 0.6, 0xa8145a], [0.05, 0.25, 0.48, 17, 0.62, 0xc9a227], [0.55, -0.15, 0.46, 22, 0.6, 0xb9bec5], [-0.15, -0.45, 0.4, 15, 0.5, 0x9a1a1a], [0.5, 0.45, 0.4, 14, 0.5, 0x5a8ad6], [-0.6, 0.45, 0.42, 16, 0.5, 0x6a2a8a]];
-    blobs.forEach(([la, lb, ra, hgt, rb, color], n) => {
-      const g = new THREE.SphereGeometry(1, 30, 20), p = g.attributes.position, s1 = n * 1.7, s2 = n * 2.9;
+    const B = obb(mopop), y0 = groundAt(mopop) - 0.4;
+    // the skin is thousands of shingled panels: every sheet a slightly different shade, with a seam between
+    const panels = canvasTex(512, 512, (x) => {
+      x.fillStyle = '#9a9a9a'; x.fillRect(0, 0, 512, 512);
+      // rows of shingles of uneven width, so the skin never reads as brickwork
+      for (let j = 0; j < 16; j++) { let px = -r() * 60; while (px < 512) { const w = 46 + r() * 70, v = 196 + Math.floor(r() * 59); x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(px + 1, j * 32 + 1, w - 2, 30); px += w; } }
+    }, [7, 5]);
+    panels.colorSpace = THREE.SRGBColorSpace;
+    const sp = (v) => Math.sign(v) * Math.pow(Math.abs(v), 0.6), fold = (v) => 1 - Math.abs(Math.sin(v));
+    // a rounded slab, folded along sharp creases, with a rolling roofline
+    const crumple = (n, sx, sy, sz) => {
+      const WS = 96, HS = 56, g = new THREE.SphereGeometry(1, WS, HS), p = g.attributes.position, s1 = n * 1.7 + 0.3, s2 = n * 2.9 + 1.1;
       for (let i = 0; i < p.count; i++) {
-        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-        const k = 1 + 0.2 * Math.sin(3.1 * x + s1) * Math.sin(2.6 * z + s2) + 0.12 * Math.sin(5 * y + s1 * 2) * Math.cos(4 * x + s2);
-        p.setXYZ(i, x * k, Math.max(y, -0.15) * k, z * k);
+        const x = sp(p.getX(i)), y = sp(p.getY(i)), z = sp(p.getZ(i)), a = Math.atan2(z, x);
+        const k = 0.9 + 0.17 * fold(1.5 * a + 1.3 * y + s1) + 0.11 * fold(2.5 * a - 2.1 * y + s2) + 0.13 * Math.sin(2 * a + s2) * Math.cos(1.7 * y + s1);
+        const roof = 1 + 0.24 * Math.sin(2.3 * x + s1) * Math.cos(1.9 * z + s2);
+        p.setXYZ(i, x * k * sx, Math.max(y, -0.08) * (y > 0 ? roof : 1) * sy, z * k * sz);
       }
-      g.scale(B.ha * ra, hgt, B.hb * rb * 1.5).rotateY(-B.angle + (n % 2 ? 0.3 : -0.2));
       g.computeVertexNormals();
-      const [x, z] = B.at(la * B.ha, lb * B.hb);
-      const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color, metalness: 0.88, roughness: 0.26, emissive: color, emissiveIntensity: 0.22 }));
+      const nm = g.attributes.normal;      // close the sphere's seam: both edges share one normal
+      for (let j = 0; j <= HS; j++) { const a = j * (WS + 1), b = a + WS, nx = nm.getX(a) + nm.getX(b), ny = nm.getY(a) + nm.getY(b), nz = nm.getZ(a) + nm.getZ(b), l = Math.hypot(nx, ny, nz) || 1; nm.setXYZ(a, nx / l, ny / l, nz / l); nm.setXYZ(b, nx / l, ny / l, nz / l); }
+      return g;
+    };
+    // fuchsia, gold stainless, brushed aluminium, red, sky blue, and a purple that shifts colour as you pass
+    const skins = [{ color: 0xb5176e, metalness: 0.9, roughness: 0.26 }, { color: 0xb8872a, metalness: 1, roughness: 0.22 }, { color: 0xc9ced4, metalness: 1, roughness: 0.3 },
+      { color: 0xa5121f, metalness: 0.75, roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.2 }, { color: 0x77a9e0, metalness: 0.85, roughness: 0.3 },
+      { color: 0x6a2f9a, metalness: 1, roughness: 0.2, iridescence: 1, iridescenceIOR: 1.9, iridescenceThicknessRange: [200, 600] }];
+    [[-0.55, -0.2, 0.5, 21, 0.6], [0.05, 0.25, 0.48, 17, 0.62], [0.55, -0.15, 0.46, 23, 0.6], [-0.15, -0.45, 0.4, 15, 0.5], [0.5, 0.45, 0.4, 14, 0.5], [-0.6, 0.45, 0.42, 16, 0.5]].forEach(([la, lb, ra, hgt, rb], n) => {
+      const g = crumple(n, B.ha * ra, hgt, B.hb * rb * 1.5).rotateY(-B.angle + (n % 2 ? 0.3 : -0.2));
+      const mat = uplit(new THREE.MeshPhysicalMaterial({ ...skins[n], map: panels, bumpMap: panels, bumpScale: 0.45, envMapIntensity: 2.2 }), y0, 11, 0.6);
+      const [x, z] = B.at(la * B.ha, lb * B.hb), m = new THREE.Mesh(g, mat);
       m.position.set(x, y0, z); group.add(m);
     });
   }
@@ -74,22 +130,188 @@ export function createIcons({ H, r, mopop, library, arena, science, eagle, hamme
     group.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(1.25, 1.25, 1.25), side: THREE.DoubleSide })));
   }
 
-  // ---------------------------------------------------------------- Climate Pledge Arena: the 1962 pyramid roof with lit ridges
+  // ---------------------------------------------------------------- Climate Pledge Arena: the 1962 saddle roof over a glass concourse
   if (arena) {
-    const B = obb(arena), y0 = Math.max(...arena.map(([x, z]) => H(x, z))) + 10.6, apex = y0 + 26, [ax, az] = B.at(0, 0);
-    const cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sa, sb]) => B.at(sa * B.ha * 1.04, sb * B.hb * 1.04));
-    const pos = [], idx = [];
-    for (let e = 0; e < 4; e++) { const a = cs[e], b = cs[(e + 1) % 4], n = pos.length / 3; pos.push(a[0], y0, a[1], b[0], y0, b[1], ax, apex, az); idx.push(n, n + 2, n + 1); }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-    group.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.55, metalness: 0.4, emissive: 0x2c3038, emissiveIntensity: 1, side: THREE.DoubleSide })));
-    const gp = [], gc = [], gs = [], gph = [];
-    for (let e = 0; e < 4; e++) {
-      const a = cs[e], b = cs[(e + 1) % 4];
-      for (let t = 0.02; t < 1; t += 0.035) { gp.push(a[0] + (ax - a[0]) * t, y0 + (apex - y0) * t + 0.3, a[1] + (az - a[1]) * t); gc.push(2.6, 2.1, 1.4); gs.push(0.7); gph.push(t); }
-      for (let t = 0; t < 1; t += 0.03) { gp.push(a[0] + (b[0] - a[0]) * t, y0 + 0.2, a[1] + (b[1] - a[1]) * t); gc.push(0.6, 1.6, 2.4); gs.push(0.6); gph.push(t); }
+    const B = obb(arena), g0 = Math.max(...arena.map(([x, z]) => H(x, z))), yb = g0 + 2.5, Ec = yb + 4.5, Em = yb + 16, A = yb + 33, ha = B.ha * 1.03, hb = B.hb * 1.03;
+    const P = (la, lb, y) => { const [x, z] = B.at(la, lb); return [x, y, z]; };
+    // four hyperbolic-paraboloid panels: high at the centre, lower at the middle of each side, lowest at the corners
+    const N = 14, pos = [], uv = [], idx = [];
+    for (const [sa, sb] of [[1, 1], [1, -1], [-1, -1], [-1, 1]]) {
+      const base = pos.length / 3;
+      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) { const u = i / N, v = j / N; pos.push(...P(sa * ha * u, sb * hb * v, A * (1 - u) * (1 - v) + Em * u * (1 - v) + Em * (1 - u) * v + Ec * u * v)); uv.push(u * ha / 0.9, v * hb / 6); }
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = base + j * (N + 1) + i; idx.push(a, a + 1, a + N + 2, a, a + N + 2, a + N + 1); }
     }
-    gp.push(ax, apex + 1, az); gc.push(4, 3.4, 2.4); gs.push(4); gph.push(0);
-    const lights = createGlowPoints(gp, gc, gs, gph, { twinkle: 0.05, fogK: 0.6 }); group.add(lights.points); glow.push(lights);
+    const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); rg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); rg.setIndex(idx); rg.computeVertexNormals();
+    group.add(new THREE.Mesh(rg, zinc(0x222a36)));
+    // concrete: ridge trusses from the centre, edge beams falling to the corners, and a buttress at each corner
+    const beams = [];
+    for (const s of [1, -1]) { beams.push(beam(P(0, 0, A + 0.6), P(s * ha, 0, Em + 0.6), 1.8, 2.4), beam(P(0, 0, A + 0.6), P(0, s * hb, Em + 0.6), 1.8, 2.4)); }
+    for (const [sa, sb] of [[1, 1], [1, -1], [-1, -1], [-1, 1]]) {
+      beams.push(beam(P(sa * ha, 0, Em + 0.2), P(sa * ha, sb * hb, Ec + 0.2), 1.3, 1.9), beam(P(0, sb * hb, Em + 0.2), P(sa * ha, sb * hb, Ec + 0.2), 1.3, 1.9));
+      beams.push(beam(P(sa * ha * 0.97, sb * hb * 0.97, Ec + 1.2), P(sa * ha * 1.13, sb * hb * 1.13, g0 - 1.5), 3.4, 3.8));
+      beams.push(beam(P(sa * ha * 0.9, sb * hb, Ec + 0.6), P(sa * ha * 1.13, sb * hb * 1.13, g0 - 1.5), 1.6, 2.2), beam(P(sa * ha, sb * hb * 0.9, Ec + 0.6), P(sa * ha * 1.13, sb * hb * 1.13, g0 - 1.5), 1.6, 2.2));
+    }
+    group.add(new THREE.Mesh(mergeGeometries(beams), uplit(new THREE.MeshStandardMaterial({ color: 0xd9d6cd, roughness: 0.85, emissive: 0x201f1c }), g0, 9, 0.42)));
+    // the glass wall under the eaves, taller toward the middle of each side, with the concourse lit inside
+    const glass = canvasTex(128, 256, (x) => {
+      const gr = x.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#0b1c26'); gr.addColorStop(0.4, '#1d3840'); gr.addColorStop(0.66, '#a8703a'); gr.addColorStop(0.82, '#e9a85c'); gr.addColorStop(1, '#f4c98a');
+      x.fillStyle = gr; x.fillRect(0, 0, 128, 256);
+      x.fillStyle = 'rgba(255,214,150,0.35)'; x.fillRect(0, 96, 128, 10);
+      x.fillStyle = '#0a0d10'; x.fillRect(0, 0, 4, 256); x.fillRect(62, 0, 3, 256); x.fillRect(0, 92, 128, 3); x.fillRect(0, 176, 128, 3);
+      x.fillStyle = 'rgba(10,12,16,0.8)'; for (let i = 0; i < 5; i++) { const px = 8 + r() * 108; x.fillRect(px, 226, 5, 30); x.beginPath(); x.arc(px + 2.5, 222, 4, 0, 7); x.fill(); }
+    });
+    glass.colorSpace = THREE.SRGBColorSpace; glass.wrapT = THREE.ClampToEdgeWrapping;
+    const gb = builder(), yg = g0 - 1.2, ia = B.ha * 0.995, ib = B.hb * 0.995, span = Em - yg;
+    for (const s of [1, -1]) for (const t of [1, -1]) {
+      gb.quad(P(s * ia, 0, yg), P(s * ia, t * ib, yg), P(s * ia, t * ib, Ec), P(s * ia, 0, Em), [0, 0], [ib / 5, 0], [ib / 5, (Ec - yg) / span], [0, 1]);
+      gb.quad(P(0, s * ib, yg), P(t * ia, s * ib, yg), P(t * ia, s * ib, Ec), P(0, s * ib, Em), [0, 0], [ia / 5, 0], [ia / 5, (Ec - yg) / span], [0, 1]);
+    }
+    group.add(new THREE.Mesh(gb.build(), new THREE.MeshBasicMaterial({ map: glass, color: new THREE.Color(0.95, 0.95, 0.95), side: THREE.DoubleSide })));
+    const gp = [], gc = [], gs = [], gph = [];
+    for (const [sa, sb] of [[1, 1], [1, -1], [-1, -1], [-1, 1]]) { const q = P(sa * ha * 1.2, sb * hb * 1.2, g0 + 0.5); gp.push(...q); gc.push(2.6, 2.2, 1.6); gs.push(1.8); gph.push(sa + sb); }
+    gp.push(...P(0, 0, A + 2.4)); gc.push(3.2, 2.8, 2.2); gs.push(1.6); gph.push(0);
+    const lights = createGlowPoints(gp, gc, gs, gph, { twinkle: 0 }); group.add(lights.points); glow.push(lights);
+  }
+
+  // ---------------------------------------------------------------- Seattle Aquarium: the Ocean Pavilion's tank window, and the pier sheds
+  if (aquarium) {
+    const { pavilion, piers, street } = aquarium;
+    const y0 = groundAt(pavilion) - 0.3, PH = 13.8;
+    let pcx = 0, pcz = 0; for (const q of pavilion) { pcx += q[0] / pavilion.length; pcz += q[1] / pavilion.length; }
+    // curved walls in cedar slats
+    const cedar = canvasTex(256, 256, (x) => {
+      for (let i = 0; i < 32; i++) { const v = r(); x.fillStyle = `rgb(${150 + v * 55 | 0},${104 + v * 42 | 0},${56 + v * 28 | 0})`; x.fillRect(i * 8, 0, 7, 256); x.fillStyle = '#2a1c10'; x.fillRect(i * 8 + 7, 0, 1, 256); }
+      x.fillStyle = 'rgba(0,0,0,0.22)'; x.fillRect(0, 84, 256, 2); x.fillRect(0, 170, 256, 2);
+    });
+    cedar.colorSpace = THREE.SRGBColorSpace;
+    const wb = builder(), gp = [], gc = [], gs = [], gph = [];
+    let run = 0;
+    for (let i = 0; i < pavilion.length; i++) {
+      const a = pavilion[i], b = pavilion[(i + 1) % pavilion.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      wb.quad([a[0], y0, a[1]], [b[0], y0, b[1]], [b[0], y0 + PH, b[1]], [a[0], y0 + PH, a[1]], [run / 4, 0], [(run + len) / 4, 0], [(run + len) / 4, PH / 4.6], [run / 4, PH / 4.6]);
+      // the roof terrace's rail lights
+      for (let d = 0; d < len; d += 3) { gp.push(a[0] + (b[0] - a[0]) * d / len, y0 + PH + 1.0, a[1] + (b[1] - a[1]) * d / len); gc.push(2.2, 1.7, 1.0); gs.push(0.16); gph.push(r()); }
+      run += len;
+    }
+    group.add(new THREE.Mesh(wb.build(), uplit(new THREE.MeshStandardMaterial({ map: cedar, roughness: 0.75, side: THREE.DoubleSide }), y0, 9, 0.5)));
+    const cap = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(pavilion.map(([x, z]) => new THREE.Vector2(x, -z)))).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x1c3a26, roughness: 0.95, emissive: 0x0b1a10, side: THREE.DoubleSide }));
+    cap.position.y = y0 + PH; group.add(cap);
+    // the tank: a bay window on the street side, alive with fish
+    let nx = street[0] - pcx, nz = street[1] - pcz; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+    const dmax = Math.max(...pavilion.map(([x, z]) => (x - pcx) * nx + (z - pcz) * nz)), TW = 24, TH = 8, ty = y0 + 1.3 + TH / 2, rot = Math.atan2(nx, nz);
+    const tankMat = new THREE.ShaderMaterial({
+      fog: true,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uAspect: { value: TW / TH } }]),
+      vertexShader: /* glsl */`
+varying vec2 vUv;
+#include <fog_pars_vertex>
+void main(){
+  vUv = uv;
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`,
+      fragmentShader: /* glsl */`
+uniform float uTime; uniform float uAspect;
+varying vec2 vUv;
+#include <fog_pars_fragment>
+float h1(float n){ return fract(sin(n * 127.1) * 43758.5453); }
+// a fish facing +x: a body and a tail, flexing as it swims
+float fish(vec2 p, float wag){
+  p.y += sin(p.x * 3.0 + wag) * 0.07;
+  float body = 1.0 - smoothstep(0.8, 1.0, length(p * vec2(1.0, 2.7)));
+  float tx = -p.x - 0.75;
+  float tail = smoothstep(0.0, 0.06, tx) * (1.0 - smoothstep(0.7, 0.78, tx)) * (1.0 - smoothstep(0.0, 0.04, abs(p.y) - tx * 0.6));
+  return max(body, tail);
+}
+void main(){
+  vec2 uv = vUv; vec2 p = vec2(uv.x * uAspect, uv.y);
+  vec3 col = mix(vec3(0.0, 0.035, 0.12), vec3(0.0, 0.26, 0.42), smoothstep(0.0, 0.75, uv.y));
+  col = mix(col, vec3(0.30, 0.78, 0.82), smoothstep(0.55, 1.05, uv.y) * 0.75);
+  // shafts of light from the surface
+  float sh = 0.0;
+  for (int i = 0; i < 4; i++) { float f = float(i); sh += smoothstep(0.55, 1.0, sin((p.x + uv.y * 0.3) * (2.1 + f * 1.3) + uTime * (0.15 + f * 0.06) + f * 2.0)); }
+  col += vec3(0.20, 0.42, 0.40) * sh * 0.16 * uv.y * uv.y;
+  // a distant school
+  for (int i = 0; i < 14; i++) {
+    float f = float(i); float dir = h1(f) > 0.5 ? 1.0 : -1.0; float spd = 0.03 + h1(f + 3.0) * 0.05;
+    float y = 0.25 + h1(f + 7.0) * 0.65 + sin(uTime * 0.5 + f) * 0.02; float s = 0.018 + h1(f + 11.0) * 0.02;
+    float x = fract(h1(f + 5.0) + uTime * spd) * (uAspect + 0.4) - 0.2; if (dir < 0.0) x = uAspect - x;
+    vec2 q = (p - vec2(x, y)) / s; q.x *= dir;
+    col = mix(col, vec3(0.0, 0.07, 0.14), fish(q, uTime * 6.0 + f) * 0.7);
+  }
+  // kelp, swaying
+  for (int i = 0; i < 9; i++) {
+    float f = float(i); float x0 = (h1(f + 20.0) * 0.98 + 0.01) * uAspect; float hgt = 0.35 + h1(f + 31.0) * 0.5;
+    float sway = sin(uTime * 0.7 + f * 1.7 + uv.y * 5.0) * 0.035 * uv.y;
+    float d = abs(p.x - x0 - sway) - 0.012 - 0.012 * sin(uv.y * 40.0 + f);
+    float k = (1.0 - smoothstep(0.0, 0.008, d)) * (1.0 - smoothstep(hgt - 0.05, hgt, uv.y));
+    col = mix(col, vec3(0.03, 0.16, 0.07) + vec3(0.05, 0.12, 0.0) * uv.y, k * 0.9);
+  }
+  // nearer fish, in colour
+  for (int i = 0; i < 7; i++) {
+    float f = float(i) + 40.0; float dir = h1(f) > 0.5 ? 1.0 : -1.0; float spd = 0.05 + h1(f + 3.0) * 0.05;
+    float y = 0.2 + h1(f + 7.0) * 0.6 + sin(uTime * 0.8 + f) * 0.03; float s = 0.055 + h1(f + 11.0) * 0.045;
+    float x = fract(h1(f + 5.0) + uTime * spd) * (uAspect + 0.6) - 0.3; if (dir < 0.0) x = uAspect - x;
+    vec2 q = (p - vec2(x, y)) / s; q.x *= dir;
+    vec3 fc = mix(vec3(1.0, 0.5, 0.12), vec3(0.75, 0.85, 0.9), step(0.5, h1(f + 13.0))) * (1.0 + 0.3 * q.y);
+    col = mix(col, fc, fish(q, uTime * 5.0 + f));
+  }
+  // one slow shark
+  {
+    float x = fract(uTime * 0.022) * (uAspect + 1.6) - 0.8;
+    vec2 q = (p - vec2(x, 0.62 + sin(uTime * 0.3) * 0.05)) / 0.21;
+    float body = fish(q * vec2(1.0, 1.5), uTime * 2.0);
+    float fin = step(0.2, q.y) * step(q.y, 0.7) * step(abs(q.x + 0.1 + (q.y - 0.2) * 0.5), (0.7 - q.y) * 0.45);
+    col = mix(col, vec3(0.02, 0.09, 0.15), max(body, fin) * 0.92);
+  }
+  // mullions
+  col *= 1.0 - 0.85 * smoothstep(0.488, 0.496, abs(fract(uv.x * 4.0) - 0.5));
+  gl_FragColor = vec4(clamp(col * 1.9, vec3(0.0), vec3(8.0)), 1.0);
+  #include <fog_fragment>
+}`,
+    });
+    const tank = new THREE.Mesh(new THREE.PlaneGeometry(TW, TH), tankMat);
+    tank.position.set(pcx + nx * (dmax + 0.5), ty, pcz + nz * (dmax + 0.5)); tank.rotation.y = rot; group.add(tank);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(TW + 1.4, TH + 1.4, 6), new THREE.MeshStandardMaterial({ color: 0x14171b, roughness: 0.5, metalness: 0.6 }));
+    frame.position.set(pcx + nx * (dmax - 2.55), ty, pcz + nz * (dmax - 2.55)); frame.rotation.y = rot; group.add(frame);
+    updaters.push((t) => { tankMat.uniforms.uTime.value = t; });
+    spots.aquarium = [tank.position.x, ty, tank.position.z];
+    // the tank's glow spills onto the pavement
+    for (let k = -3; k <= 3; k++) { gp.push(tank.position.x + nz * k * 3.2 + nx * 2.5, y0 + 0.5, tank.position.z - nx * k * 3.2 + nz * 2.5); gc.push(0.25, 1.1, 1.5); gs.push(2.4); gph.push(k); }
+    const sy = y0 + PH - 2.0, sx = pcx + nx * (dmax + 0.75), sz = pcz + nz * (dmax + 0.75);
+    group.add(signPlane(textTexture([['SEATTLE AQUARIUM', 104, 128]], '#9fe8ff', 1024, 256), 16, 4, sx, sy, sz, rot));
+    const board = new THREE.Mesh(new THREE.BoxGeometry(16.6, 4.3, 3), frame.material); board.position.set(sx - nx * 1.6, sy, sz - nz * 1.6); board.rotation.y = rot; group.add(board);
+
+    // the pier sheds: long gabled timber sheds with a row of lit windows
+    const siding = canvasTex(128, 128, (x) => {
+      x.fillStyle = '#4f6b70'; x.fillRect(0, 0, 128, 128);
+      x.fillStyle = 'rgba(0,0,0,0.22)'; for (let y = 6; y < 128; y += 7) x.fillRect(0, y, 128, 1);
+      x.fillStyle = '#e9e6dc'; x.fillRect(0, 0, 128, 5); x.fillRect(0, 122, 128, 6); x.fillRect(36, 34, 56, 58);
+      x.fillStyle = '#ffd9a0'; x.fillRect(40, 38, 48, 50); x.fillStyle = '#e9e6dc'; x.fillRect(63, 38, 2, 50); x.fillRect(40, 62, 48, 2);
+    });
+    siding.colorSpace = THREE.SRGBColorSpace; siding.wrapT = THREE.ClampToEdgeWrapping;
+    const sidingGlow = canvasTex(128, 128, (x) => {
+      x.fillStyle = '#000'; x.fillRect(0, 0, 128, 128);
+      const gr = x.createLinearGradient(0, 38, 0, 88); gr.addColorStop(0, '#ffe2b0'); gr.addColorStop(1, '#c98a4a'); x.fillStyle = gr; x.fillRect(40, 38, 48, 50);
+      x.fillStyle = '#000'; x.fillRect(63, 38, 2, 50); x.fillRect(40, 62, 48, 2);
+    });
+    sidingGlow.colorSpace = THREE.SRGBColorSpace; sidingGlow.wrapT = THREE.ClampToEdgeWrapping;
+    const sb = builder(), rb = builder();
+    for (const ring of piers) {
+      const Bp = obb(ring), long = Bp.ha >= Bp.hb, L = long ? Bp.ha : Bp.hb, Wd = long ? Bp.hb : Bp.ha, yp = groundAt(ring) - 0.3, wh = 6.5, rh = Math.min(5, Wd * 0.45);
+      const P = (l, w, y) => { const [x, z] = long ? Bp.at(l, w) : Bp.at(w, l); return [x, yp + y, z]; };
+      for (const s of [1, -1]) {
+        sb.quad(P(-L, s * Wd, 0), P(L, s * Wd, 0), P(L, s * Wd, wh), P(-L, s * Wd, wh), [0, 0], [L / 2.2, 0], [L / 2.2, 1], [0, 1]);
+        sb.quad(P(s * L, -Wd, 0), P(s * L, Wd, 0), P(s * L, Wd, wh), P(s * L, -Wd, wh), [0, 0], [Wd / 2.2, 0], [Wd / 2.2, 1], [0, 1]);
+        sb.tri(P(s * L, -Wd, wh), P(s * L, Wd, wh), P(s * L, 0, wh + rh), [0, 0.9], [0.2, 0.9], [0.1, 0.9]);
+        rb.quad(P(-L - 0.9, s * (Wd + 0.8), wh - 0.3), P(L + 0.9, s * (Wd + 0.8), wh - 0.3), P(L + 0.9, 0, wh + rh + 0.12), P(-L - 0.9, 0, wh + rh + 0.12), [0, 0], [2 * L / 0.9, 0], [2 * L / 0.9, 1.5], [0, 1.5]);
+        for (let l = -L; l <= L; l += 2.6) { gp.push(...P(l, s * (Wd + 0.9), wh - 0.5)); gc.push(2.3, 1.7, 0.95); gs.push(0.17); gph.push(r()); }
+      }
+    }
+    group.add(new THREE.Mesh(sb.build(), uplit(new THREE.MeshStandardMaterial({ map: siding, emissiveMap: sidingGlow, emissive: 0xffffff, emissiveIntensity: 1.3, roughness: 0.85, side: THREE.DoubleSide }), y0, 6, 0.55)));
+    group.add(new THREE.Mesh(rb.build(), zinc(0x1c2430)));
+    const lights = createGlowPoints(gp, gc, gs, gph, { twinkle: 0.06 }); group.add(lights.points); glow.push(lights);
   }
 
   // ---------------------------------------------------------------- Pacific Science Center: five white gothic arches
@@ -146,5 +368,5 @@ export function createIcons({ H, r, mopop, library, arena, science, eagle, hamme
   }
 
   group.traverse(o => { o.frustumCulled = false; });
-  return { group, glow, update: (t) => { for (const u of updaters) u(t); } };
+  return { group, glow, spots, update: (t) => { for (const u of updaters) u(t); } };
 }

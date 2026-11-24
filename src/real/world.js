@@ -91,9 +91,13 @@ export async function initRealWorld(app, mapName = 'slu') {
   const spheresB = data.buildings.find(b => /The Spheres/.test(b.n));
   const pickB = (re) => data.buildings.find(b => re.test(b.n));
   const mopopB = pickB(/MoPOP/), libraryB = pickB(/Central Library/), arenaB = pickB(/Climate Pledge Arena/), scienceB = pickB(/Pacific Science Center/);
-  if (arenaB) arenaB.h = 11;        // low walls; the pyramid roof is added on top
+  if (arenaB) arenaB.h = 3;         // a low plinth; the glass walls and saddle roof are added on top
+  // the Aquarium: the Ocean Pavilion, and the two unnamed pier sheds behind it
+  const oceanB = pickB(/^Ocean Pavilion$/);
+  const pierB = (x, z) => data.buildings.find(b => !b.n && Math.hypot(centreOf(b)[0] - x, centreOf(b)[1] - z) < 25);
+  const aquaB = oceanB ? [oceanB, pierB(-384, 1193), pierB(-357, 1227)].filter(Boolean) : [];
   data.buildings = data.buildings.filter((b) => {
-    if (b === spheresB || b === mopopB || b === libraryB) return false;
+    if (b === spheresB || b === mopopB || b === libraryB || aquaB.includes(b)) return false;
     const [x, z] = centreOf(b);
     if (needleAt && (b === needleB || Math.hypot(x - glassAt[0], z - glassAt[1]) < 30)) return false;
     return !inSet(x, z);
@@ -377,16 +381,21 @@ export async function initRealWorld(app, mapName = 'slu') {
     const gr = nearRoad(-160, 1122, 3);
     let gum = null;
     if (gr) { const dx = -160 - gr.x, dz = 1122 - gr.z, d = Math.hypot(dx, dz) || 1, k = gr.rd.hw + 2.6; gum = { at: [gr.x + dx / d * k, gr.z + dz / d * k], th: Math.atan2(gr.s.bx - gr.s.ax, gr.s.bz - gr.s.az) }; }
-    const icons = createIcons({ H, r, mopop: mopopB && mopopB.p, library: libraryB && libraryB.p, arena: arenaB && arenaB.p, science: scienceB && centreOf(scienceB),
+    // the Aquarium faces the nearest real street (Alaskan Way)
+    let aqStreet = null;
+    if (oceanB) { const [ox, oz] = centreOf(oceanB); let bd = 1e9; for (const rd of roads) { if (rd.hw < 5) continue; for (let i = 1; i < rd.pts.length; i++) { const a = rd.pts[i - 1], b = rd.pts[i], dx = b[0] - a[0], dz = b[1] - a[1], t = Math.max(0, Math.min(1, ((ox - a[0]) * dx + (oz - a[1]) * dz) / (dx * dx + dz * dz || 1))), qx = a[0] + dx * t, qz = a[1] + dz * t, d = Math.hypot(qx - ox, qz - oz); if (d < bd) { bd = d; aqStreet = [qx, qz]; } } } }
+    const icons = createIcons({ H, r, aquarium: aqStreet && { pavilion: oceanB.p, piers: aquaB.slice(1).map(b => b.p), street: aqStreet }, mopop: mopopB && mopopB.p, library: libraryB && libraryB.p, arena: arenaB && arenaB.p, science: scienceB && centreOf(scienceB),
       eagle: [-1312, 251], hammer, gum });
     iconSpots = { hammer, gum: gum && gum.at };
     scene.add(icons.group); glow.push(...icons.glow); updaters.push(() => icons.update(app.time));
     obstacles.push({ x: -1312, z: 251, r: 3 });
-    for (const [b, name, sub, dist, up] of [[mopopB, 'MoPOP', 'Museum of Pop Culture, wrapped in crumpled metal', 70, 9], [libraryB, 'Seattle Central Library', 'Faceted glass and steel, opened in 2004', 80, 26]]) {
+    if (icons.spots.aquarium) heroStops.push({ name: 'Seattle Aquarium', sub: 'The Ocean Pavilion’s tank window, and the pier sheds behind it', x: aqStreet[0], z: aqStreet[1], look: icons.spots.aquarium, near: 28, dist: 32, lift: 1.5 });
+    for (const [b, name, sub, dist, up] of [[mopopB, 'MoPOP', 'Museum of Pop Culture, wrapped in crumpled metal', 70, 9], [libraryB, 'Seattle Central Library', 'Faceted glass and steel, opened in 2004', 80, 26], ...aquaB.map(b => [b])]) {
       if (!b) continue;
       for (let i = 0; i < b.p.length; i++) { const p = b.p[i], q = b.p[(i + 1) % b.p.length]; segs.push({ ax: p[0], az: p[1], bx: q[0], bz: q[1] }); }
       let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [x, z] of b.p) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
       footprints.push({ x0, x1, z0, z1, p: b.p });
+      if (!name) continue;
       const [cx, cz] = centreOf(b), nr = nearRoad(cx, cz, 4);
       if (nr && nr.x > B.x0 + 8 && nr.x < B.x1 - 8 && nr.z > B.z0 + 8 && nr.z < B.z1 - 8) heroStops.push({ name, sub, x: nr.x, z: nr.z, look: [cx, H(cx, cz) + up, cz], dist, lift: 4 });
     }
